@@ -91,7 +91,7 @@ const MIME_TYPES = {
 };
 
 function printHelp() {
-  console.log(`mdv 1.5.1 — Visor moderno de Markdown con Splits infinitos, Terminales WSL, Carousel, Mermaid, Vim y Live-Reload
+  console.log(`mdv 1.6.0 — Visor moderno de Markdown con Zona de Terminales WSL, Splits infinitos, Carousel, Mermaid, Vim y Live-Reload
 
 Uso:
   mdv                              Abre la carpeta actual y explora todos los .md en subcarpetas
@@ -141,7 +141,7 @@ function parseArgs(argv) {
       process.exit(0);
     }
     if (arg === '-V' || arg === '--version') {
-      console.log('mdv 1.5.1');
+      console.log('mdv 1.6.0');
       process.exit(0);
     }
     if (arg === '--update') {
@@ -457,12 +457,12 @@ function buildHtmlShell({
   <link rel="stylesheet" href="/vendor/overlayscrollbars/overlayscrollbars.min.css" />
   <link rel="stylesheet" href="/vendor/xterm/xterm.css" />
   <link rel="stylesheet" href="/vendor/katex/katex.min.css" />
-  <link rel="stylesheet" href="/assets/styles.css?v=1.5.1" />
+  <link rel="stylesheet" href="/assets/styles.css?v=1.6.0" />
 </head>
 <body class="${hideFilesClass}">
   <header class="mdv-topbar">
     <div class="mdv-topbar-left">
-      <button type="button" id="mdv-toggle-files" class="mdv-tool-btn${showSidebarByDefault ? ' is-active' : ''}" title="Explorador de archivos (e)">
+      <button type="button" id="mdv-toggle-files" class="mdv-tool-btn${showSidebarByDefault ? ' is-active' : ''}" title="Mostrar/ocultar Navegador de MD (e)">
         <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor"><path d="M1.75 1h12.5c.966 0 1.75.784 1.75 1.75v10.5A1.75 1.75 0 0 1 14.25 15H1.75A1.75 1.75 0 0 1 0 13.25V2.75C0 1.784.784 1 1.75 1ZM1.5 2.75v10.5c0 .138.112.25.25.25H5v-11H1.75a.25.25 0 0 0-.25.25Zm5 10.75h7.75a.25.25 0 0 0 .25-.25V2.75a.25.25 0 0 0-.25-.25H6.5Z"/></svg>
         <span>Archivos</span>
         <span id="mdv-total-files" class="mdv-count-chip">${files.length}</span>
@@ -478,25 +478,27 @@ function buildHtmlShell({
     <div class="mdv-topbar-right">
       <!-- Markdown Splits -->
       <div class="mdv-btn-pill-group" role="group" aria-label="Markdown Splits">
-        <button type="button" id="mdv-split-vertical" class="mdv-tool-btn" title="Nuevo Split Markdown a la derecha (Ctrl+Alt+R)">
+        <button type="button" id="mdv-split-vertical" class="mdv-tool-btn" title="Dividir MD a la derecha (Ctrl+Alt+R en zona MD)">
           <svg viewBox="0 0 16 16" width="13" height="13" fill="currentColor"><path d="M1.75 1h12.5c.966 0 1.75.784 1.75 1.75v10.5A1.75 1.75 0 0 1 14.25 15H1.75A1.75 1.75 0 0 1 0 13.25V2.75C0 1.784.784 1 1.75 1ZM1.5 2.75v10.5c0 .138.112.25.25.25h5.5v-11h-5.5a.25.25 0 0 0-.25.25Zm7 10.75h5.75a.25.25 0 0 0 .25-.25V2.75a.25.25 0 0 0-.25-.25H8.5Z"/></svg>
           <span>MD |</span>
         </button>
-        <button type="button" id="mdv-split-horizontal" class="mdv-tool-btn" title="Nuevo Split Markdown abajo (Ctrl+Alt+D)">
+        <button type="button" id="mdv-split-horizontal" class="mdv-tool-btn" title="Dividir MD abajo (Ctrl+Alt+D en zona MD)">
           <svg viewBox="0 0 16 16" width="13" height="13" fill="currentColor"><path d="M1.75 1h12.5c.966 0 1.75.784 1.75 1.75v10.5A1.75 1.75 0 0 1 14.25 15H1.75A1.75 1.75 0 0 1 0 13.25V2.75C0 1.784.784 1 1.75 1ZM1.5 2.75v4.5h13v-4.5a.25.25 0 0 0-.25-.25H1.75a.25.25 0 0 0-.25.25Zm0 6v4.5c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25v-4.5Z"/></svg>
           <span>MD —</span>
         </button>
       </div>
 
-      <!-- WSL Terminal Splits -->
+      <!-- WSL Terminal Splits & Zone Toggle -->
       <div class="mdv-btn-pill-group" role="group" aria-label="WSL Terminal Splits">
-        <button type="button" id="mdv-term-vertical" class="mdv-tool-btn mdv-term-btn" title="Abrir Terminal WSL a la derecha (Alt+Shift+R o Ctrl+Alt+T)">
+        <button type="button" id="mdv-toggle-term-zone" class="mdv-tool-btn is-active" title="Mostrar/ocultar Zona de Terminales">
           <span class="mdv-term-glyph">&gt;_</span>
-          <span>|</span>
+          <span>Terminal</span>
         </button>
-        <button type="button" id="mdv-term-horizontal" class="mdv-tool-btn mdv-term-btn" title="Abrir Terminal WSL abajo (Alt+Shift+D o Ctrl+Alt+B)">
-          <span class="mdv-term-glyph">&gt;_</span>
-          <span>—</span>
+        <button type="button" id="mdv-term-vertical" class="mdv-tool-btn mdv-term-btn" title="Split Terminal a la derecha (Ctrl+Alt+R en Terminal o Alt+Shift+R)">
+          <span>+|</span>
+        </button>
+        <button type="button" id="mdv-term-horizontal" class="mdv-tool-btn mdv-term-btn" title="Split Terminal abajo (Ctrl+Alt+D en Terminal o Alt+Shift+D)">
+          <span>+—</span>
         </button>
       </div>
 
@@ -522,7 +524,9 @@ function buildHtmlShell({
     </div>
   </header>
 
-  <div class="mdv-layout">
+  <!-- 4-Zone Workspace: [1. Navegador de MD] | [2. Visor de MD] | [3. Índice] | [4. Terminales WSL] -->
+  <div class="mdv-workspace">
+    <!-- 1. Navegador de MD (Izquierda) -->
     <aside class="mdv-sidebar-files">
       <div class="mdv-explorer-top">
         <div class="mdv-explorer-header">
@@ -541,17 +545,24 @@ function buildHtmlShell({
       </div>
     </aside>
 
-    <!-- Recursive Split Tree Root -->
-    <main id="mdv-panes-root" class="mdv-panes-root" data-pane-count="1">
+    <!-- 2. Visor de MD (Splits infinitos de Markdown) -->
+    <main id="mdv-md-zone" class="mdv-md-zone" data-md-count="1">
       <div id="mdv-initial-html" hidden>${html}</div>
     </main>
 
+    <!-- 3. Índice / TOC -->
     <aside class="mdv-sidebar-toc">
       <h2 class="mdv-panel-title mdv-toc-top">En esta página</h2>
       <div id="mdv-toc-scroll" class="mdv-sidebar-scroll" data-overlayscrollbars-initialize>
         <ul id="mdv-toc-list" class="mdv-toc-list">${tocHtml}</ul>
       </div>
     </aside>
+
+    <!-- Divisor redimensionable entre Zona Markdown/Índice y Zona Terminales -->
+    <div id="mdv-zone-resizer" class="mdv-zone-resizer" title="Arrastra para ajustar ancho de Terminales · Doble clic restablecer"></div>
+
+    <!-- 4. Zona de Terminales WSL (Derecha — siempre 1 abierta por defecto + Splits infinitos) -->
+    <section id="mdv-term-zone" class="mdv-term-zone" data-term-count="1" aria-label="Zona de Terminales WSL"></section>
   </div>
 
   <!-- Vim Search Bar (/) -->
@@ -596,7 +607,7 @@ function buildHtmlShell({
   <script src="/vendor/xterm/xterm.js"></script>
   <script src="/vendor/xterm/addon-fit.js"></script>
   <script src="/vendor/mermaid/mermaid.min.js"></script>
-  <script src="/assets/app.js?v=1.5.1"></script>
+  <script src="/assets/app.js?v=1.6.0"></script>
 </body>
 </html>`;
 }

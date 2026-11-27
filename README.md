@@ -12,7 +12,7 @@ Visor ligero de Markdown lanzado desde la terminal que abre una **ventana limpia
   - **Fórmulas matemáticas (KaTeX):** soporte en línea (`$...$`) y en bloque (`$$...$$`).
   - **Código con resaltado (`highlight.js`):** botón de copiado rápido y soporte de bloques `<details>` desplegables.
 - **Explorador recursivo de carpetas:** ejecuta `mdv` en cualquier directorio para listar en un árbol colapsable todos los `.md` de la carpeta actual y subcarpetas (con filtro rápido `Ctrl+P`).
-- **Splits infinitos (Markdown + Terminales reales de WSL):** divide cualquier panel vertical u horizontalmente sin límite, combinando documentos Markdown con **terminales interactivas reales de WSL (`zsh`/`bash` vía PTY + `xterm.js`)** sincronizadas con tu tema y tamaño de letra (`A−` / `100%` / `A+`).
+- **Layout de 4 columnas (`Navegador de MD | Visor de MD | Índice | Terminales WSL`):** separa limpiamente tu zona de lectura/documentación a la izquierda de tu **zona de terminales reales de WSL** a la derecha (con 1 terminal abierta siempre por defecto en `Iosevka Nerd Font`, divisor arrastrable y splits infinitos independientes en cada zona).
 - **Mappings estilo Vim + Índice (TOC):** navegación fluida con teclado (`Alt+h/j/k/l` entre archivos, documentos y terminales, `j`/`k`, `5j`, `d`/`u`, `gg`/`G`, `]]`/`[[`, `/` + `n`/`N`, `?`, `q`) y tabla de contenidos lateral con *scroll-spy*.
 - **Live-Reload híbrido y apagado automático:** detecta cambios al instante (incluso guardados atómicos de Vim/Neovim y rutas `/mnt/c/...`), devuelve el prompt de la terminal enseguida y apaga su servidor local automáticamente al cerrar la ventana.
 

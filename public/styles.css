@@ -851,28 +851,6 @@ h4.mdv-heading {
   padding: 8px 0;
 }
 
-@media (max-width: 1180px) {
-  .mdv-layout {
-    grid-template-columns: 0px minmax(0, 1fr) 230px;
-  }
-  .mdv-sidebar-files {
-    display: none;
-  }
-}
-
-@media (max-width: 900px) {
-  .mdv-layout {
-    grid-template-columns: 1fr !important;
-  }
-  .mdv-sidebar-toc,
-  .mdv-sidebar-files {
-    display: none;
-  }
-  .mdv-main {
-    padding: 24px 18px 64px;
-  }
-}
-
 /* Live-reload Badge & Vim Search / HUD */
 .mdv-reload-pill {
   font-size: 0.72rem;
@@ -1671,4 +1649,100 @@ html, body {
        local("Iosevka Nerd Font Mono"),
        local("Iosevka NFM");
   font-display: block;
+}
+
+/* ============================================================================
+   v1.6.0 — 4-Column Workspace Layout:
+   [1. Navegador de MD] | [2. Visor de MD] | [3. Índice] | [4. Zona Terminales]
+   ============================================================================ */
+.mdv-workspace {
+  display: flex;
+  flex-direction: row;
+  width: 100vw;
+  height: calc(100vh - 50px);
+  min-height: 0;
+  overflow: hidden;
+  --mdv-term-width: 36vw;
+}
+
+.mdv-workspace > .mdv-sidebar-files {
+  flex: 0 0 224px;
+  width: 224px;
+  height: 100%;
+  min-height: 0;
+}
+
+body.hide-files .mdv-workspace > .mdv-sidebar-files {
+  flex: 0 0 0px;
+  width: 0px;
+}
+
+.mdv-md-zone {
+  flex: 1 1 0%;
+  min-width: 240px;
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  overflow: hidden;
+  position: relative;
+  background: var(--bg-app);
+}
+
+.mdv-workspace > .mdv-sidebar-toc {
+  flex: 0 0 196px;
+  width: 196px;
+  height: 100%;
+  min-height: 0;
+  border-right: 1px solid var(--border-subtle);
+}
+
+body.hide-toc .mdv-workspace > .mdv-sidebar-toc {
+  flex: 0 0 0px;
+  width: 0px;
+}
+
+.mdv-zone-resizer {
+  flex: 0 0 5px;
+  width: 5px;
+  height: 100%;
+  background: var(--border-subtle);
+  cursor: col-resize;
+  transition: background 0.15s;
+  z-index: 25;
+}
+
+.mdv-zone-resizer:hover,
+.mdv-zone-resizer.is-dragging {
+  background: #10b981;
+}
+
+.mdv-term-zone {
+  flex: 0 0 var(--mdv-term-width);
+  width: var(--mdv-term-width);
+  min-width: 240px;
+  max-width: 74vw;
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  overflow: hidden;
+  background: var(--bg-code);
+}
+
+body.hide-term-zone .mdv-term-zone,
+body.hide-term-zone .mdv-zone-resizer {
+  display: none !important;
+}
+
+/* Pane Headers inside Separate Zones */
+.mdv-md-zone:not([data-md-count="1"]) .mdv-pane-bar,
+.mdv-term-zone .mdv-pane-bar {
+  display: flex;
+}
+
+.mdv-md-zone[data-md-count="1"] .mdv-pane.is-zone-focused {
+  box-shadow: inset 0 2px 0 0 var(--accent);
+}
+
+.mdv-md-zone:not([data-md-count="1"]) .mdv-pane-scroller [data-overlayscrollbars-viewport] {
+  padding: 24px 26px 80px;
 }

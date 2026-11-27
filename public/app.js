@@ -92,8 +92,11 @@
     }
   };
 
+  const workspaceEl = document.querySelector('.mdv-workspace');
   const sidebarFilesEl = document.querySelector('.mdv-sidebar-files');
-  const panesRootEl = document.getElementById('mdv-panes-root');
+  const mdZoneEl = document.getElementById('mdv-md-zone');
+  const termZoneEl = document.getElementById('mdv-term-zone');
+  const zoneResizerEl = document.getElementById('mdv-zone-resizer');
   const initialHtmlHolder = document.getElementById('mdv-initial-html');
   const tocListEl = document.getElementById('mdv-toc-list');
   const fileListEl = document.getElementById('mdv-file-list');
@@ -106,6 +109,7 @@
   const btnWide = document.getElementById('mdv-toggle-wide');
   const btnSplitV = document.getElementById('mdv-split-vertical');
   const btnSplitH = document.getElementById('mdv-split-horizontal');
+  const btnToggleTermZone = document.getElementById('mdv-toggle-term-zone');
   const btnTermV = document.getElementById('mdv-term-vertical');
   const btnTermH = document.getElementById('mdv-term-horizontal');
   const btnFontDec = document.getElementById('mdv-font-dec');
@@ -175,14 +179,19 @@
   }
 
   // =========================================================================
-  // INFINITE RECURSIVE SPLIT TREE STATE
+  // SEPARATED DUAL INFINITE TREES:
+  //   Left-Center: mdRootTree (Markdown Panes inside #mdv-md-zone)
+  //   Right:       termRootTree (WSL Terminals inside #mdv-term-zone)
   // =========================================================================
   let nextNodeSeq = 1;
-  let rootTree = null; // PaneNode | BranchNode
-  const panesById = new Map(); // id -> PaneNode
-  let focusedPaneId = null;
-  let lastMarkdownPaneId = null;
-  let focusZone = 'pane'; // 'pane' | 'files'
+  let mdRootTree = null;
+  let termRootTree = null;
+  const mdPanes = new Map(); // id -> MarkdownPane
+  const termPanes = new Map(); // id -> TerminalPane
+
+  let focusedMdPaneId = null;
+  let focusedTermPaneId = null;
+  let focusZone = 'markdown'; // 'files' | 'markdown' | 'terminal'
   let treeCursorEl = null;
   let syncScroll = false;
   let isSyncingScroll = false;
@@ -190,20 +199,17 @@
   let reloadPillTimer = null;
   let toastTimer = null;
 
-  function activePane() {
-    return panesById.get(focusedPaneId) || panesById.values().next().value || null;
+  function activeMdPane() {
+    return mdPanes.get(focusedMdPaneId) || mdPanes.values().next().value || null;
   }
 
-  function allMarkdownPanes() {
-    return Array.from(panesById.values()).filter((p) => p.kind === 'markdown');
+  function activeTermPane() {
+    return termPanes.get(focusedTermPaneId) || termPanes.values().next().value || null;
   }
 
-  function allTerminalPanes() {
-    return Array.from(panesById.values()).filter((p) => p.kind === 'terminal');
-  }
-
-  function updatePaneCountAttr() {
-    panesRootEl.setAttribute('data-pane-count', String(panesById.size));
+  function updateZoneCounts() {
+    mdZoneEl.setAttribute('data-md-count', String(mdPanes.size));
+    termZoneEl.setAttribute('data-term-count', String(termPanes.size));
     document.querySelectorAll('[data-pane-sync]').forEach((b) => b.classList.toggle('is-active', syncScroll));
   }
 
@@ -244,13 +250,13 @@
     localStorage.setItem('mdv-theme', theme);
 
     const xtermTheme = XTERM_THEMES[theme] || XTERM_THEMES.tokyo;
-    for (const tp of allTerminalPanes()) {
+    for (const tp of termPanes.values()) {
       if (tp.term) tp.term.options.theme = xtermTheme;
     }
 
     if (rerender) {
       savePrefs({ theme });
-      for (const mp of allMarkdownPanes()) {
+      for (const mp of mdPanes.values()) {
         renderMermaidDiagrams(mp.article);
       }
     }
@@ -268,11 +274,11 @@
     if (btnFontReset) btnFontReset.textContent = `${zoomPercent}%`;
     localStorage.setItem('mdv-zoom', String(zoomPercent));
 
-    for (const mp of allMarkdownPanes()) {
+    for (const mp of mdPanes.values()) {
       mp.article.style.fontSize = `${zoomPercent}%`;
     }
     const termPx = Math.max(11, Math.min(24, Math.round((15 * zoomPercent) / 100)));
-    for (const tp of allTerminalPanes()) {
+    for (const tp of termPanes.values()) {
       if (tp.term) {
         tp.term.options.fontSize = termPx;
         tp.fitTerminal?.();
@@ -290,13 +296,33 @@
     btnFiles?.classList.toggle('is-active', !hidden);
     localStorage.setItem('mdv-hide-files', hidden ? '1' : '0');
     if (hidden && focusZone === 'files') {
-      setFocusZone('pane', focusedPaneId, false);
+      setFocusZone('markdown', focusedMdPaneId, false);
     }
+    requestAnimationFrame(() => fitAllTerminals());
   }
 
   function toggleTocPanel() {
     const hidden = document.body.classList.toggle('hide-toc');
     btnToc?.classList.toggle('is-active', !hidden);
+    requestAnimationFrame(() => fitAllTerminals());
+  }
+
+  function toggleTermZone() {
+    const hidden = document.body.classList.toggle('hide-term-zone');
+    btnToggleTermZone?.classList.toggle('is-active', !hidden);
+    if (hidden && focusZone === 'terminal') {
+      setFocusZone('markdown', focusedMdPaneId, false);
+    } else if (!hidden) {
+      if (termPanes.size === 0) {
+        const tp = createTerminalPane();
+        termRootTree = tp;
+        termZoneEl.appendChild(tp.el);
+        focusedTermPaneId = tp.id;
+        tp.boot();
+        updateZoneCounts();
+      }
+      requestAnimationFrame(() => fitAllTerminals());
+    }
   }
 
   function toggleWideMode() {
@@ -306,36 +332,82 @@
     showToast(wide ? 'Ancho: expandido' : 'Ancho: lectura');
   }
 
+  function fitAllTerminals() {
+    for (const tp of termPanes.values()) {
+      tp.fitTerminal?.();
+    }
+  }
+
+  // Draggable Main Resizer between [Markdown + Índice] and [Terminal Zone]
+  const savedTermWidth = localStorage.getItem('mdv-term-width');
+  if (savedTermWidth && workspaceEl) {
+    workspaceEl.style.setProperty('--mdv-term-width', savedTermWidth);
+  }
+
+  zoneResizerEl?.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    zoneResizerEl.setPointerCapture(e.pointerId);
+    zoneResizerEl.classList.add('is-dragging');
+    const onMove = (ev) => {
+      const wsRect = workspaceEl.getBoundingClientRect();
+      const rightWidth = Math.max(240, Math.min(wsRect.width * 0.72, wsRect.right - ev.clientX));
+      const pct = `${((rightWidth / wsRect.width) * 100).toFixed(2)}vw`;
+      workspaceEl.style.setProperty('--mdv-term-width', pct);
+      localStorage.setItem('mdv-term-width', pct);
+    };
+    const onUp = () => {
+      zoneResizerEl.classList.remove('is-dragging');
+      zoneResizerEl.removeEventListener('pointermove', onMove);
+      zoneResizerEl.removeEventListener('pointerup', onUp);
+      fitAllTerminals();
+    };
+    zoneResizerEl.addEventListener('pointermove', onMove);
+    zoneResizerEl.addEventListener('pointerup', onUp);
+  });
+
+  zoneResizerEl?.addEventListener('dblclick', () => {
+    workspaceEl?.style.setProperty('--mdv-term-width', '38vw');
+    localStorage.setItem('mdv-term-width', '38vw');
+    requestAnimationFrame(() => fitAllTerminals());
+    showToast('Ancho Terminal restablecido');
+  });
+
   // =========================================================================
-  // PANE FACTORIES (MARKDOWN PANE & WSL TERMINAL PANE)
+  // PANE FACTORIES (SEPARATED MARKDOWN ZONE vs TERMINAL ZONE)
   // =========================================================================
   function buildPaneHeaderHtml(id, kind, titleText) {
-    const iconHtml =
-      kind === 'terminal'
-        ? '<span class="mdv-term-glyph">&gt;_</span>'
-        : '<span class="mdv-pane-dot"></span>';
-    const syncBtn =
-      kind === 'markdown'
-        ? `<button type="button" class="mdv-pane-btn${syncScroll ? ' is-active' : ''}" data-pane-sync title="Sincronizar scroll Markdown (Espacio y)">Sync</button>`
-        : '';
+    if (kind === 'terminal') {
+      return `
+        <div class="mdv-pane-bar">
+          <div class="mdv-pane-bar-left">
+            <span class="mdv-pane-dot"></span>
+            <span class="mdv-term-glyph">&gt;_</span>
+            <span class="mdv-pane-title" data-pane-title>${titleText}</span>
+          </div>
+          <div class="mdv-pane-bar-right">
+            <button type="button" class="mdv-pane-btn" data-pane-action="term-right" data-target-pane="${id}" title="Split Terminal a la derecha (Ctrl+Alt+R)">+|</button>
+            <button type="button" class="mdv-pane-btn" data-pane-action="term-down" data-target-pane="${id}" title="Split Terminal abajo (Ctrl+Alt+D)">+—</button>
+            <button type="button" class="mdv-pane-btn" data-pane-close="${id}" data-close-kind="terminal" title="Cerrar esta terminal">✕</button>
+          </div>
+        </div>`;
+    }
     return `
       <div class="mdv-pane-bar">
         <div class="mdv-pane-bar-left">
-          ${iconHtml}
+          <span class="mdv-pane-dot"></span>
           <span class="mdv-pane-title" data-pane-title>${titleText}</span>
         </div>
         <div class="mdv-pane-bar-right">
-          ${syncBtn}
-          <button type="button" class="mdv-pane-btn" data-pane-action="md-right" data-target-pane="${id}" title="Split Markdown a la derecha (Ctrl+Alt+R)">+MD |</button>
-          <button type="button" class="mdv-pane-btn" data-pane-action="term-right" data-target-pane="${id}" title="Split Terminal WSL a la derecha (Alt+Shift+R)">&gt;_ |</button>
-          <button type="button" class="mdv-pane-btn" data-pane-action="term-down" data-target-pane="${id}" title="Split Terminal WSL abajo (Alt+Shift+D)">&gt;_ —</button>
-          <button type="button" class="mdv-pane-btn" data-pane-close="${id}" title="Cerrar este panel">✕</button>
+          <button type="button" class="mdv-pane-btn${syncScroll ? ' is-active' : ''}" data-pane-sync title="Sincronizar scroll Markdown (Espacio y)">Sync</button>
+          <button type="button" class="mdv-pane-btn" data-pane-action="md-right" data-target-pane="${id}" title="Split MD a la derecha (Ctrl+Alt+R)">+|</button>
+          <button type="button" class="mdv-pane-btn" data-pane-action="md-down" data-target-pane="${id}" title="Split MD abajo (Ctrl+Alt+D)">+—</button>
+          <button type="button" class="mdv-pane-btn" data-pane-close="${id}" data-close-kind="markdown" title="Cerrar este panel MD (q)">✕</button>
         </div>
       </div>`;
   }
 
   function createMarkdownPane({ filePath = '', relPath = '', html = '', toc = [] } = {}) {
-    const id = `pane-${nextNodeSeq++}`;
+    const id = `md-${nextNodeSeq++}`;
     const section = document.createElement('section');
     section.className = 'mdv-pane';
     section.setAttribute('data-pane-id', id);
@@ -375,25 +447,19 @@
     };
 
     section.addEventListener('pointerdown', () => {
-      if (focusZone !== 'pane' || focusedPaneId !== id) {
-        setFocusZone('pane', id, false);
+      if (focusZone !== 'markdown' || focusedMdPaneId !== id) {
+        setFocusZone('markdown', id, false);
       }
     });
 
     scroller.addEventListener('scroll', () => onMarkdownPaneScroll(pane), { passive: true });
-    panesById.set(id, pane);
-    lastMarkdownPaneId = id;
+    mdPanes.set(id, pane);
     return pane;
   }
 
   function resolvePreferredCwd() {
-    const cur = activePane();
-    if (cur?.kind === 'markdown' && cur.filePath) {
-      const idx = cur.filePath.lastIndexOf('/');
-      if (idx > 0) return cur.filePath.slice(0, idx);
-    }
-    if (lastMarkdownPaneId && panesById.has(lastMarkdownPaneId)) {
-      const mp = panesById.get(lastMarkdownPaneId);
+    const mp = activeMdPane();
+    if (mp?.filePath) {
       const idx = mp.filePath.lastIndexOf('/');
       if (idx > 0) return mp.filePath.slice(0, idx);
     }
@@ -401,7 +467,7 @@
   }
 
   function createTerminalPane({ cwd = '' } = {}) {
-    const id = `pane-${nextNodeSeq++}`;
+    const id = `term-${nextNodeSeq++}`;
     const targetCwd = cwd || resolvePreferredCwd();
     const shortDir = targetCwd.split('/').filter(Boolean).pop() || 'wsl';
     const section = document.createElement('section');
@@ -468,7 +534,7 @@
         if (!term || term.element) return;
         term.open(mountEl);
 
-        // Allow app-level spatial navigation & split shortcuts to pass out of xterm cleanly!
+        // Pass app-level spatial & split shortcuts cleanly out of xterm
         term.attachCustomKeyEventHandler((ev) => {
           const isAltGraph = Boolean(ev.getModifierState && ev.getModifierState('AltGraph'));
           const isCtrlAlt = (ev.ctrlKey && ev.altKey && !ev.metaKey) || (isAltGraph && !ev.metaKey);
@@ -488,7 +554,6 @@
           ) {
             return false;
           }
-          // Ctrl+Shift+C / Ctrl+Shift+V copy-paste convenience in terminal
           if (ev.ctrlKey && ev.shiftKey && ev.code === 'KeyC' && term.hasSelection()) {
             navigator.clipboard.writeText(term.getSelection()).catch(() => {});
             return false;
@@ -496,7 +561,36 @@
           return true;
         });
 
-        fitTerminal();
+        const connectShell = () => {
+          if (disposed) return;
+          fitTerminal();
+          const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+          const wsUrl = `${proto}//${location.host}/ws/pty?cwd=${encodeURIComponent(targetCwd)}&cols=${term.cols}&rows=${term.rows}`;
+          ws = new WebSocket(wsUrl);
+          ws.binaryType = 'arraybuffer';
+
+          ws.onmessage = (ev) => {
+            if (ev.data instanceof ArrayBuffer) {
+              term.write(new Uint8Array(ev.data));
+            } else if (typeof ev.data === 'string') {
+              try {
+                const msg = JSON.parse(ev.data);
+                if (msg.type === 'exit') {
+                  if (termPanes.size > 1) {
+                    closeTerminalPane(id);
+                  } else {
+                    // Keep at least 1 default terminal alive in the right Terminal Zone!
+                    term.reset();
+                    connectShell();
+                  }
+                }
+              } catch {}
+            }
+          };
+        };
+
+        connectShell();
+
         if (document.fonts?.load) {
           document.fonts.load(`${termPx}px "MDV Iosevka Nerd"`).then(() => {
             try {
@@ -506,28 +600,6 @@
             } catch {}
           });
         }
-        const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = `${proto}//${location.host}/ws/pty?cwd=${encodeURIComponent(targetCwd)}&cols=${term.cols}&rows=${term.rows}`;
-        ws = new WebSocket(wsUrl);
-        ws.binaryType = 'arraybuffer';
-
-        ws.onmessage = (ev) => {
-          if (ev.data instanceof ArrayBuffer) {
-            term.write(new Uint8Array(ev.data));
-          } else if (typeof ev.data === 'string') {
-            try {
-              const msg = JSON.parse(ev.data);
-              if (msg.type === 'exit') {
-                if (panesById.size > 1) {
-                  closePaneById(id);
-                } else {
-                  term.writeln('\r\n\x1b[90m[Sesión cerrada — cerrando ventana...]\x1b[0m');
-                  setTimeout(() => window.close(), 350);
-                }
-              }
-            } catch {}
-          }
-        };
 
         term.onData((data) => {
           if (ws && ws.readyState === WebSocket.OPEN) {
@@ -553,17 +625,17 @@
     };
 
     section.addEventListener('pointerdown', () => {
-      if (focusZone !== 'pane' || focusedPaneId !== id) {
-        setFocusZone('pane', id, false);
+      if (focusZone !== 'terminal' || focusedTermPaneId !== id) {
+        setFocusZone('terminal', id, false);
       }
     });
 
-    panesById.set(id, pane);
+    termPanes.set(id, pane);
     return pane;
   }
 
   // =========================================================================
-  // RECURSIVE BINARY TREE OPERATIONS (INFINITE SPLITS)
+  // GENERIC RECURSIVE TREE HELPERS FOR BOTH ZONES
   // =========================================================================
   function applyBranchSizes(branch) {
     const r = Math.min(0.86, Math.max(0.14, branch.ratio));
@@ -596,22 +668,7 @@
     return firstLeafPane(node.first) || firstLeafPane(node.second);
   }
 
-  async function splitPane(targetPaneId, direction = 'vertical', newKind = 'markdown', opts = {}) {
-    const targetPane = panesById.get(targetPaneId) || activePane();
-    if (!targetPane) return null;
-
-    let newPane;
-    if (newKind === 'terminal') {
-      newPane = createTerminalPane({ cwd: opts.cwd });
-    } else {
-      const sourceMd =
-        targetPane.kind === 'markdown'
-          ? targetPane
-          : (lastMarkdownPaneId && panesById.get(lastMarkdownPaneId)) || allMarkdownPanes()[0];
-      const fileToOpen = opts.filePath || sourceMd?.filePath || initCfg.currentFile;
-      newPane = createMarkdownPane({ filePath: fileToOpen, relPath: fileToOpen.split('/').pop() });
-    }
-
+  function createBranchAround(targetPane, newPane, direction) {
     const branchEl = document.createElement('div');
     branchEl.className = 'mdv-split-branch';
     branchEl.setAttribute('data-direction', direction);
@@ -631,7 +688,6 @@
       second: newPane
     };
 
-    // Swap DOM in-place so existing xterm/scrollbars in targetPane stay 100% live!
     targetPane.el.replaceWith(branchEl);
     branchEl.append(targetPane.el, resizerEl, newPane.el);
     applyBranchSizes(branch);
@@ -642,17 +698,17 @@
       resizerEl.classList.add('is-dragging');
       const onMove = (ev) => {
         const rect = branchEl.getBoundingClientRect();
-        if (branch.direction === 'vertical') {
-          branch.ratio = (ev.clientX - rect.left) / rect.width;
-        } else {
-          branch.ratio = (ev.clientY - rect.top) / rect.height;
-        }
+        branch.ratio =
+          branch.direction === 'vertical'
+            ? (ev.clientX - rect.left) / rect.width
+            : (ev.clientY - rect.top) / rect.height;
         applyBranchSizes(branch);
       };
       const onUp = () => {
         resizerEl.classList.remove('is-dragging');
         resizerEl.removeEventListener('pointermove', onMove);
         resizerEl.removeEventListener('pointerup', onUp);
+        fitAllTerminals();
       };
       resizerEl.addEventListener('pointermove', onMove);
       resizerEl.addEventListener('pointerup', onUp);
@@ -660,101 +716,148 @@
     resizerEl.addEventListener('dblclick', () => {
       branch.ratio = 0.5;
       applyBranchSizes(branch);
+      fitAllTerminals();
       showToast('Split 50 / 50');
     });
 
-    rootTree = replaceTreeNode(rootTree, targetPane.id, branch);
-    updatePaneCountAttr();
+    return branch;
+  }
 
-    if (newPane.kind === 'terminal') {
-      newPane.boot();
-      setFocusZone('pane', newPane.id, false);
-      showToast(direction === 'vertical' ? 'Terminal WSL (derecha)' : 'Terminal WSL (abajo)');
-    } else {
-      await loadDocumentInPane(newPane.id, newPane.filePath, { preserveScroll: false });
-      if (!opts.filePath && targetPane.kind === 'markdown') {
-        newPane.scroller.scrollTop = targetPane.scroller.scrollTop;
-      }
-      setFocusZone('pane', newPane.id, false);
-      showToast(direction === 'vertical' ? 'Split Right creado' : 'Split Down creado');
+  // Split inside Markdown Zone (Left-Center)
+  async function splitMarkdownPane(targetId, direction = 'vertical', filePath = null) {
+    const targetPane = mdPanes.get(targetId) || activeMdPane();
+    if (!targetPane) return null;
+    const fileToOpen = filePath || targetPane.filePath || initCfg.currentFile;
+    const newPane = createMarkdownPane({ filePath: fileToOpen, relPath: fileToOpen.split('/').pop() });
+    const branch = createBranchAround(targetPane, newPane, direction);
+    mdRootTree = replaceTreeNode(mdRootTree, targetPane.id, branch);
+    updateZoneCounts();
+
+    await loadDocumentInPane(newPane.id, fileToOpen, { preserveScroll: false });
+    if (!filePath) {
+      newPane.scroller.scrollTop = targetPane.scroller.scrollTop;
     }
+    setFocusZone('markdown', newPane.id, false);
+    showToast(direction === 'vertical' ? 'MD Split Right' : 'MD Split Down');
     return newPane;
   }
 
-  function closePaneById(paneId) {
-    const pane = panesById.get(paneId);
-    if (!pane) return;
+  // Split inside Terminal Zone (Right)
+  function splitTerminalPane(targetId, direction = 'vertical', cwd = '') {
+    if (document.body.classList.contains('hide-term-zone')) {
+      document.body.classList.remove('hide-term-zone');
+      btnToggleTermZone?.classList.add('is-active');
+    }
+    const targetPane = termPanes.get(targetId) || activeTermPane();
+    if (!targetPane) {
+      const tp = createTerminalPane({ cwd });
+      termRootTree = tp;
+      termZoneEl.appendChild(tp.el);
+      focusedTermPaneId = tp.id;
+      tp.boot();
+      updateZoneCounts();
+      setFocusZone('terminal', tp.id, false);
+      return tp;
+    }
+    const newPane = createTerminalPane({ cwd: cwd || targetPane.cwd });
+    const branch = createBranchAround(targetPane, newPane, direction);
+    termRootTree = replaceTreeNode(termRootTree, targetPane.id, branch);
+    updateZoneCounts();
+    newPane.boot();
+    setFocusZone('terminal', newPane.id, false);
+    showToast(direction === 'vertical' ? 'Terminal Split Right' : 'Terminal Split Down');
+    return newPane;
+  }
 
-    if (panesById.size <= 1) {
+  function closeMarkdownPane(paneId) {
+    const pane = mdPanes.get(paneId);
+    if (!pane) return;
+    if (mdPanes.size <= 1) {
+      // Closing the last Markdown pane exits the app cleanly
+      for (const tp of termPanes.values()) tp.dispose?.();
       pane.dispose?.();
       window.close();
       return;
     }
-
-    const parentBranch = findParentBranch(rootTree, pane);
+    const parentBranch = findParentBranch(mdRootTree, pane);
     if (!parentBranch) return;
     const sibling = parentBranch.first === pane ? parentBranch.second : parentBranch.first;
-
-    // Replace parentBranch DOM with surviving sibling subtree DOM in-place!
     sibling.el.style.flex = parentBranch.el.style.flex || '1 1 100%';
     parentBranch.el.replaceWith(sibling.el);
 
-    const grandParent = findParentBranch(rootTree, parentBranch);
+    const grandParent = findParentBranch(mdRootTree, parentBranch);
     if (!grandParent) {
-      rootTree = sibling;
+      mdRootTree = sibling;
       sibling.el.style.flex = '1 1 100%';
     } else {
       if (grandParent.first === parentBranch) grandParent.first = sibling;
       else grandParent.second = sibling;
       applyBranchSizes(grandParent);
     }
-
     pane.dispose?.();
-    panesById.delete(paneId);
-    updatePaneCountAttr();
+    mdPanes.delete(paneId);
+    updateZoneCounts();
 
-    if (focusedPaneId === paneId) {
-      const nextTarget = firstLeafPane(sibling) || firstLeafPane(rootTree);
-      if (nextTarget) setFocusZone('pane', nextTarget.id, false);
-    } else {
-      updateFileTreeMarkers();
-    }
-    // Re-fit any terminals that just expanded
-    requestAnimationFrame(() => {
-      for (const tp of allTerminalPanes()) tp.fitTerminal?.();
-    });
-    showToast('Panel cerrado');
-  }
-
-  function closeOtherPanes(keepPaneId) {
-    const keep = panesById.get(keepPaneId);
-    if (!keep || panesById.size <= 1) return;
-    for (const [id, p] of panesById.entries()) {
-      if (id !== keepPaneId) {
-        p.dispose?.();
-        panesById.delete(id);
+    if (focusedMdPaneId === paneId) {
+      const next = firstLeafPane(sibling) || firstLeafPane(mdRootTree);
+      if (next) {
+        focusedMdPaneId = next.id;
+        if (focusZone === 'markdown') setFocusZone('markdown', next.id, false);
       }
     }
-    rootTree = keep;
-    keep.el.style.flex = '1 1 100%';
-    panesRootEl.innerHTML = '';
-    panesRootEl.appendChild(keep.el);
-    updatePaneCountAttr();
-    setFocusZone('pane', keep.id, false);
-    if (keep.kind === 'terminal') requestAnimationFrame(() => keep.fitTerminal?.());
-    showToast('Solo panel activo');
+    updateFileTreeMarkers();
+    showToast('Panel MD cerrado');
   }
 
-  function equalizeAllBranches(node = rootTree) {
+  function closeTerminalPane(paneId) {
+    const pane = termPanes.get(paneId);
+    if (!pane) return;
+    if (termPanes.size <= 1) {
+      // Hide terminal zone if user clicks X on the single terminal (can re-open anytime!)
+      toggleTermZone();
+      return;
+    }
+    const parentBranch = findParentBranch(termRootTree, pane);
+    if (!parentBranch) return;
+    const sibling = parentBranch.first === pane ? parentBranch.second : parentBranch.first;
+    sibling.el.style.flex = parentBranch.el.style.flex || '1 1 100%';
+    parentBranch.el.replaceWith(sibling.el);
+
+    const grandParent = findParentBranch(termRootTree, parentBranch);
+    if (!grandParent) {
+      termRootTree = sibling;
+      sibling.el.style.flex = '1 1 100%';
+    } else {
+      if (grandParent.first === parentBranch) grandParent.first = sibling;
+      else grandParent.second = sibling;
+      applyBranchSizes(grandParent);
+    }
+    pane.dispose?.();
+    termPanes.delete(paneId);
+    updateZoneCounts();
+
+    if (focusedTermPaneId === paneId) {
+      const next = firstLeafPane(sibling) || firstLeafPane(termRootTree);
+      if (next) {
+        focusedTermPaneId = next.id;
+        if (focusZone === 'terminal') setFocusZone('terminal', next.id, false);
+      }
+    }
+    requestAnimationFrame(() => fitAllTerminals());
+    showToast('Terminal cerrada');
+  }
+
+  function equalizeTree(node) {
     if (!node || node.type === 'pane') return;
     node.ratio = 0.5;
     applyBranchSizes(node);
-    equalizeAllBranches(node.first);
-    equalizeAllBranches(node.second);
+    equalizeTree(node.first);
+    equalizeTree(node.second);
   }
 
   // =========================================================================
-  // 2D GEOMETRIC SPATIAL FOCUS (Alt + h / j / k / l across infinite splits!)
+  // 4-COLUMN SPATIAL FOCUS NAVIGATION (Alt + h / j / k / l)
+  // Order: [1. Archivos] <-> [2. Visor MD] <-> (3. Índice visual) <-> [4. Terminales]
   // =========================================================================
   function getNavigableTreeItems() {
     if (!fileListEl) return [];
@@ -814,122 +917,102 @@
     if (treeCursorEl.classList.contains('mdv-file-item')) {
       const targetPath = treeCursorEl.getAttribute('data-file-path');
       if (!targetPath) return;
-      const curPane = activePane();
-      if (openInSplit || curPane?.kind === 'terminal') {
-        // If current focused pane is a terminal (or user asked for split), either load in existing markdown pane or split!
-        const existingMd = !openInSplit && lastMarkdownPaneId ? panesById.get(lastMarkdownPaneId) : null;
-        if (existingMd) {
-          await loadDocumentInPane(existingMd.id, targetPath, { pushState: true });
-          if (!stayInFiles) setFocusZone('pane', existingMd.id, false);
-        } else {
-          await splitPane(curPane?.id, 'vertical', 'markdown', { filePath: targetPath });
-          if (stayInFiles) setFocusZone('files', focusedPaneId, false);
-        }
-      } else if (curPane) {
-        await loadDocumentInPane(curPane.id, targetPath, { pushState: true });
-        if (!stayInFiles) {
-          setFocusZone('pane', curPane.id, false);
-        } else {
-          const refreshed = fileListEl?.querySelector(`.mdv-file-item[data-file-path="${CSS.escape(targetPath)}"]`);
-          setTreeCursor(refreshed);
+      if (openInSplit) {
+        await splitMarkdownPane(focusedMdPaneId, 'vertical', targetPath);
+        if (stayInFiles) setFocusZone('files', null, false);
+      } else {
+        const md = activeMdPane();
+        if (md) {
+          await loadDocumentInPane(md.id, targetPath, { pushState: true });
+          if (!stayInFiles) {
+            setFocusZone('markdown', md.id, false);
+          } else {
+            const refreshed = fileListEl?.querySelector(`.mdv-file-item[data-file-path="${CSS.escape(targetPath)}"]`);
+            setTreeCursor(refreshed);
+          }
         }
       }
     }
   }
 
-  function focusPaneById(id) {
-    const p = panesById.get(id) || activePane();
-    if (!p) return;
-    focusedPaneId = p.id;
-    if (p.kind === 'markdown') lastMarkdownPaneId = p.id;
+  function setFocusZone(zone, targetPaneId = null, announce = true) {
+    focusZone = zone;
 
-    for (const [pid, paneObj] of panesById.entries()) {
-      const isFoc = pid === p.id;
-      paneObj.section.classList.toggle('is-focused', isFoc);
-      paneObj.section.classList.toggle('is-zone-focused', focusZone === 'pane' && isFoc);
-      if (!isFoc && paneObj.kind === 'terminal') {
-        paneObj.term?.blur?.();
+    // Clear previous focus visuals
+    sidebarFilesEl?.classList.remove('is-zone-focused');
+    if (zone !== 'files' && treeCursorEl) treeCursorEl.classList.remove('is-tree-cursor');
+    for (const mp of mdPanes.values()) {
+      mp.section.classList.remove('is-zone-focused');
+    }
+    for (const tp of termPanes.values()) {
+      tp.section.classList.remove('is-zone-focused');
+      if (zone !== 'terminal' || tp.id !== (targetPaneId || focusedTermPaneId)) {
+        tp.term?.blur?.();
       }
     }
 
-    if (p.kind === 'terminal') {
-      if (vimPosEl && focusZone === 'pane') vimPosEl.textContent = 'TERM';
-      if (focusZone === 'pane') {
-        requestAnimationFrame(() => p.term?.focus());
-      }
-    } else {
-      if (document.activeElement?.closest('.xterm')) {
-        document.activeElement.blur();
-      }
-      if (fileNameEl) fileNameEl.textContent = p.relPath || p.filePath.split('/').pop() || '';
-      renderToc(p.toc);
-      refreshHeadings(p);
-      onMarkdownPaneScroll(p);
-      if (lastQuery) highlightQuery(lastQuery);
-    }
-    updateFileTreeMarkers();
-  }
-
-  function setFocusZone(zone, paneId = focusedPaneId, announce = true) {
     if (zone === 'files') {
       if (document.body.classList.contains('hide-files')) {
         document.body.classList.remove('hide-files');
         btnFiles?.classList.add('is-active');
         localStorage.setItem('mdv-hide-files', '0');
       }
-      focusZone = 'files';
-      if (document.activeElement?.closest('.xterm')) {
-        document.activeElement.blur();
-      }
+      if (document.activeElement?.closest('.xterm')) document.activeElement.blur();
       sidebarFilesEl?.classList.add('is-zone-focused');
-      for (const p of panesById.values()) p.section.classList.remove('is-zone-focused');
       const items = getNavigableTreeItems();
       const validExisting = treeCursorEl && items.includes(treeCursorEl) ? treeCursorEl : null;
-      const initialItem =
-        validExisting || items.find((el) => el.classList?.contains('is-current')) || items[0] || null;
-      setTreeCursor(initialItem);
+      setTreeCursor(validExisting || items.find((el) => el.classList?.contains('is-current')) || items[0] || null);
       if (vimPosEl) vimPosEl.textContent = 'FILES';
-      if (announce) showToast('Foco: Archivos');
-    } else {
-      focusZone = 'pane';
-      sidebarFilesEl?.classList.remove('is-zone-focused');
-      if (treeCursorEl) treeCursorEl.classList.remove('is-tree-cursor');
-      focusPaneById(paneId);
-      if (announce) {
-        const p = activePane();
-        showToast(p?.kind === 'terminal' ? 'Foco: Terminal WSL' : `Foco: ${p?.relPath || 'Documento'}`);
-      }
-    }
-  }
-
-  function handleSpatialFocusNavigation(dir) {
-    if (document.activeElement?.matches('input, select')) {
-      document.activeElement.blur();
-    }
-
-    if (focusZone === 'files') {
-      if (dir === 'right') {
-        // Pick leftmost pane with best vertical overlap
-        const panes = Array.from(panesById.values());
-        panes.sort((a, b) => a.section.getBoundingClientRect().left - b.section.getBoundingClientRect().left);
-        if (panes[0]) setFocusZone('pane', panes[0].id);
-      } else if (dir === 'down') {
-        moveTreeCursor(1);
-      } else if (dir === 'up') {
-        moveTreeCursor(-1);
-      }
+      if (announce) showToast('Foco: Navegador de MD');
       return;
     }
 
-    const cur = activePane();
-    if (!cur) return;
-    const curRect = cur.section.getBoundingClientRect();
-    let bestPane = null;
+    if (zone === 'markdown') {
+      if (document.activeElement?.closest('.xterm')) document.activeElement.blur();
+      const mp = mdPanes.get(targetPaneId) || activeMdPane();
+      if (!mp) return;
+      focusedMdPaneId = mp.id;
+      for (const [id, p] of mdPanes.entries()) {
+        p.section.classList.toggle('is-focused', id === mp.id);
+      }
+      mp.section.classList.add('is-zone-focused');
+      if (fileNameEl) fileNameEl.textContent = mp.relPath || mp.filePath.split('/').pop() || '';
+      renderToc(mp.toc);
+      refreshHeadings(mp);
+      onMarkdownPaneScroll(mp);
+      updateFileTreeMarkers();
+      if (lastQuery) highlightQuery(lastQuery);
+      if (announce) showToast(`Foco: ${mp.relPath || 'Markdown'}`);
+      return;
+    }
+
+    if (zone === 'terminal') {
+      if (document.body.classList.contains('hide-term-zone')) {
+        document.body.classList.remove('hide-term-zone');
+        btnToggleTermZone?.classList.add('is-active');
+        requestAnimationFrame(() => fitAllTerminals());
+      }
+      const tp = termPanes.get(targetPaneId) || activeTermPane();
+      if (!tp) return;
+      focusedTermPaneId = tp.id;
+      for (const [id, p] of termPanes.entries()) {
+        p.section.classList.toggle('is-focused', id === tp.id);
+      }
+      tp.section.classList.add('is-zone-focused');
+      if (vimPosEl) vimPosEl.textContent = 'TERM';
+      requestAnimationFrame(() => tp.term?.focus());
+      if (announce) showToast('Foco: Terminal WSL');
+    }
+  }
+
+  function findNeighborInMap(curPane, paneMap, dir) {
+    const curRect = curPane.section.getBoundingClientRect();
+    let best = null;
     let bestDist = Infinity;
     let bestOverlap = -1;
 
-    for (const cand of panesById.values()) {
-      if (cand.id === cur.id) continue;
+    for (const cand of paneMap.values()) {
+      if (cand.id === curPane.id) continue;
       const r = cand.section.getBoundingClientRect();
       if (r.width < 10 || r.height < 10) continue;
 
@@ -939,7 +1022,7 @@
         if (overlap > 12 && (dist < bestDist - 4 || (Math.abs(dist - bestDist) <= 4 && overlap > bestOverlap))) {
           bestDist = dist;
           bestOverlap = overlap;
-          bestPane = cand;
+          best = cand;
         }
       } else if (dir === 'right' && r.left >= curRect.right - 10) {
         const overlap = Math.min(r.bottom, curRect.bottom) - Math.max(r.top, curRect.top);
@@ -947,7 +1030,7 @@
         if (overlap > 12 && (dist < bestDist - 4 || (Math.abs(dist - bestDist) <= 4 && overlap > bestOverlap))) {
           bestDist = dist;
           bestOverlap = overlap;
-          bestPane = cand;
+          best = cand;
         }
       } else if (dir === 'up' && r.bottom <= curRect.top + 10) {
         const overlap = Math.min(r.right, curRect.right) - Math.max(r.left, curRect.left);
@@ -955,7 +1038,7 @@
         if (overlap > 12 && (dist < bestDist - 4 || (Math.abs(dist - bestDist) <= 4 && overlap > bestOverlap))) {
           bestDist = dist;
           bestOverlap = overlap;
-          bestPane = cand;
+          best = cand;
         }
       } else if (dir === 'down' && r.top >= curRect.bottom - 10) {
         const overlap = Math.min(r.right, curRect.right) - Math.max(r.left, curRect.left);
@@ -963,26 +1046,87 @@
         if (overlap > 12 && (dist < bestDist - 4 || (Math.abs(dist - bestDist) <= 4 && overlap > bestOverlap))) {
           bestDist = dist;
           bestOverlap = overlap;
-          bestPane = cand;
+          best = cand;
         }
       }
     }
+    return best;
+  }
 
-    if (bestPane) {
-      setFocusZone('pane', bestPane.id);
-    } else if (dir === 'left') {
-      // No pane further left -> enter Left File Browser!
-      setFocusZone('files');
+  function pickEdgePane(paneMap, edge, refRect = null) {
+    const list = Array.from(paneMap.values()).filter((p) => p.section.getBoundingClientRect().width > 10);
+    if (!list.length) return null;
+    list.sort((a, b) => {
+      const ra = a.section.getBoundingClientRect();
+      const rb = b.section.getBoundingClientRect();
+      const primary = edge === 'leftmost' ? ra.left - rb.left : rb.right - ra.right;
+      if (Math.abs(primary) > 8) return primary;
+      if (refRect) {
+        const oa = Math.min(ra.bottom, refRect.bottom) - Math.max(ra.top, refRect.top);
+        const ob = Math.min(rb.bottom, refRect.bottom) - Math.max(rb.top, refRect.top);
+        return ob - oa;
+      }
+      return ra.top - rb.top;
+    });
+    return list[0];
+  }
+
+  function handleSpatialFocusNavigation(dir) {
+    if (document.activeElement?.matches('input, select')) {
+      document.activeElement.blur();
+    }
+
+    if (focusZone === 'files') {
+      if (dir === 'right') {
+        const targetMd = pickEdgePane(mdPanes, 'leftmost') || activeMdPane();
+        if (targetMd) setFocusZone('markdown', targetMd.id);
+      } else if (dir === 'down') {
+        moveTreeCursor(1);
+      } else if (dir === 'up') {
+        moveTreeCursor(-1);
+      }
+      return;
+    }
+
+    if (focusZone === 'markdown') {
+      const curMd = activeMdPane();
+      if (!curMd) return;
+      const neighborMd = findNeighborInMap(curMd, mdPanes, dir);
+      if (neighborMd) {
+        setFocusZone('markdown', neighborMd.id);
+        return;
+      }
+      if (dir === 'left') {
+        setFocusZone('files');
+      } else if (dir === 'right' && !document.body.classList.contains('hide-term-zone')) {
+        const targetTerm = pickEdgePane(termPanes, 'leftmost', curMd.section.getBoundingClientRect()) || activeTermPane();
+        if (targetTerm) setFocusZone('terminal', targetTerm.id);
+      }
+      return;
+    }
+
+    if (focusZone === 'terminal') {
+      const curTerm = activeTermPane();
+      if (!curTerm) return;
+      const neighborTerm = findNeighborInMap(curTerm, termPanes, dir);
+      if (neighborTerm) {
+        setFocusZone('terminal', neighborTerm.id);
+        return;
+      }
+      if (dir === 'left') {
+        const targetMd = pickEdgePane(mdPanes, 'rightmost', curTerm.section.getBoundingClientRect()) || activeMdPane();
+        if (targetMd) setFocusZone('markdown', targetMd.id);
+      }
     }
   }
 
   function toggleSyncScroll() {
     syncScroll = !syncScroll;
-    updatePaneCountAttr();
+    updateZoneCounts();
     showToast(syncScroll ? 'Scroll sincronizado: ON' : 'Scroll sincronizado: OFF');
   }
 
-  // Topbar event listeners
+  // Topbar bindings
   const savedTheme = localStorage.getItem('mdv-theme') || initCfg.defaultTheme || 'tokyo';
   applyTheme(savedTheme, false);
 
@@ -997,24 +1141,25 @@
 
   sidebarFilesEl?.addEventListener('pointerdown', (e) => {
     if (e.target.closest('input, button')) return;
-    if (focusZone !== 'files') setFocusZone('files', focusedPaneId, false);
+    if (focusZone !== 'files') setFocusZone('files', null, false);
   });
 
   themeSelect?.addEventListener('change', (e) => applyTheme(e.target.value, true));
   btnFiles?.addEventListener('click', toggleFilesPanel);
   btnToc?.addEventListener('click', toggleTocPanel);
+  btnToggleTermZone?.addEventListener('click', toggleTermZone);
   btnWide?.addEventListener('click', toggleWideMode);
-  btnSplitV?.addEventListener('click', () => splitPane(focusedPaneId, 'vertical', 'markdown'));
-  btnSplitH?.addEventListener('click', () => splitPane(focusedPaneId, 'horizontal', 'markdown'));
-  btnTermV?.addEventListener('click', () => splitPane(focusedPaneId, 'vertical', 'terminal'));
-  btnTermH?.addEventListener('click', () => splitPane(focusedPaneId, 'horizontal', 'terminal'));
+  btnSplitV?.addEventListener('click', () => splitMarkdownPane(focusedMdPaneId, 'vertical'));
+  btnSplitH?.addEventListener('click', () => splitMarkdownPane(focusedMdPaneId, 'horizontal'));
+  btnTermV?.addEventListener('click', () => splitTerminalPane(focusedTermPaneId, 'vertical'));
+  btnTermH?.addEventListener('click', () => splitTerminalPane(focusedTermPaneId, 'horizontal'));
   btnFontDec?.addEventListener('click', () => applyZoom(zoomPercent - 10));
   btnFontReset?.addEventListener('click', () => applyZoom(100));
   btnFontInc?.addEventListener('click', () => applyZoom(zoomPercent + 10));
   btnSearch?.addEventListener('click', () => openSearchBar());
   btnHelp?.addEventListener('click', () => toggleHelpModal());
 
-  // File Tree Expand / Collapse & Quick Filter (Ctrl+P)
+  // File Tree Expand / Collapse & Filter
   expandTreeBtn?.addEventListener('click', () => {
     fileListEl?.querySelectorAll('details.mdv-folder-details').forEach((d) => (d.open = true));
   });
@@ -1051,11 +1196,11 @@
       fileFilterEl.value = '';
       applyFileTreeFilter('');
       fileFilterEl.blur();
-      setFocusZone('files', focusedPaneId, false);
+      setFocusZone('files', null, false);
     } else if (e.key === 'ArrowDown') {
       e.preventDefault();
       fileFilterEl.blur();
-      setFocusZone('files', focusedPaneId, false);
+      setFocusZone('files', null, false);
     } else if (e.key === 'Enter') {
       e.preventDefault();
       const firstVisible = fileListEl?.querySelector('.mdv-file-item:not([hidden])');
@@ -1063,15 +1208,12 @@
       if (targetPath) {
         fileFilterEl.blur();
         if (e.altKey || e.shiftKey) {
-          splitPane(focusedPaneId, 'vertical', 'markdown', { filePath: targetPath });
+          splitMarkdownPane(focusedMdPaneId, 'vertical', targetPath);
         } else {
-          const cur = activePane();
-          const mdTarget = cur?.kind === 'markdown' ? cur : allMarkdownPanes()[0];
-          if (mdTarget) {
-            loadDocumentInPane(mdTarget.id, targetPath, { pushState: true });
-            setFocusZone('pane', mdTarget.id, false);
-          } else {
-            splitPane(focusedPaneId, 'vertical', 'markdown', { filePath: targetPath });
+          const md = activeMdPane();
+          if (md) {
+            loadDocumentInPane(md.id, targetPath, { pushState: true });
+            setFocusZone('markdown', md.id, false);
           }
         }
       }
@@ -1080,7 +1222,6 @@
 
   // Carousels & Mermaid
   function initCarouselsForPane(pane) {
-    if (pane.kind !== 'markdown') return;
     pane.carouselControllers.length = 0;
     pane.article.querySelectorAll('[data-carousel]').forEach((carousel, idx) => {
       const id = carousel.getAttribute('data-carousel-id') || String(idx);
@@ -1147,7 +1288,7 @@
   }
 
   function findVisibleCarouselInPane(pane) {
-    if (pane?.kind !== 'markdown') return null;
+    if (!pane) return null;
     const scrollerRect = pane.scroller.getBoundingClientRect();
     let best = null;
     let bestOverlap = 0;
@@ -1198,7 +1339,7 @@
   let lastQuery = '';
 
   function clearSearchHighlights() {
-    for (const mp of allMarkdownPanes()) {
+    for (const mp of mdPanes.values()) {
       mp.article.querySelectorAll('mark.mdv-search-hit').forEach((mark) => {
         const parent = mark.parentNode;
         if (!parent) return;
@@ -1214,12 +1355,11 @@
   function highlightQuery(query) {
     clearSearchHighlights();
     lastQuery = query;
-    const pane = activePane();
-    if (!query || pane?.kind !== 'markdown') return;
+    const pane = activeMdPane();
+    if (!query || !pane) return;
 
-    const targetArticle = pane.article;
     const lowerQ = query.toLowerCase();
-    const walker = document.createTreeWalker(targetArticle, NodeFilter.SHOW_TEXT, {
+    const walker = document.createTreeWalker(pane.article, NodeFilter.SHOW_TEXT, {
       acceptNode(node) {
         if (!node.nodeValue || !node.nodeValue.trim()) return NodeFilter.FILTER_REJECT;
         const p = node.parentElement;
@@ -1320,35 +1460,33 @@
     modalBodyEl.innerHTML = `
       <div data-help-sheet>
         <h3 class="mdv-help-title">
-          <span>Atajos Vim, Splits Infinitos y Terminales WSL</span>
+          <span>Atajos: Archivos | Visor MD | Índice | Terminales WSL</span>
           <span class="mdv-kbd">Esc / ?</span>
         </h3>
         <div class="mdv-help-grid">
           <div class="mdv-help-section">
-            <h4>Splits Infinitos y Terminales WSL</h4>
-            <div class="mdv-help-row"><span>Split Markdown Right / Down</span><span><kbd class="mdv-kbd">Ctrl+Alt+R</kbd> / <kbd class="mdv-kbd">Ctrl+Alt+D</kbd></span></div>
-            <div class="mdv-help-row"><span>Split Terminal WSL Right</span><span><kbd class="mdv-kbd">Alt+Shift+R</kbd> o <kbd class="mdv-kbd">Ctrl+Alt+T</kbd></span></div>
-            <div class="mdv-help-row"><span>Split Terminal WSL Down</span><span><kbd class="mdv-kbd">Alt+Shift+D</kbd> o <kbd class="mdv-kbd">Ctrl+Alt+B</kbd></span></div>
-            <div class="mdv-help-row"><span>Mover foco (Archivos / MD / Term)</span><span><kbd class="mdv-kbd">Alt + h / j / k / l</kbd></span></div>
-            <div class="mdv-help-row"><span>Cerrar cualquier panel activo</span><span><kbd class="mdv-kbd">Alt+Shift+W</kbd> (o <kbd class="mdv-kbd">q</kbd> en MD)</span></div>
-            <div class="mdv-help-row"><span>Igualar todos 50:50 / Solo actual</span><span><kbd class="mdv-kbd">Espacio =</kbd> / <kbd class="mdv-kbd">Espacio o</kbd></span></div>
+            <h4>Zonas y Splits Infinitos</h4>
+            <div class="mdv-help-row"><span>Moverse entre las zonas y splits</span><span><kbd class="mdv-kbd">Alt + h / j / k / l</kbd></span></div>
+            <div class="mdv-help-row"><span>Split Right / Down en zona actual</span><span><kbd class="mdv-kbd">Ctrl+Alt+R</kbd> / <kbd class="mdv-kbd">Ctrl+Alt+D</kbd></span></div>
+            <div class="mdv-help-row"><span>Forzar nuevo Split Terminal WSL</span><span><kbd class="mdv-kbd">Alt+Shift+R</kbd> / <kbd class="mdv-kbd">Alt+Shift+D</kbd></span></div>
+            <div class="mdv-help-row"><span>Cerrar panel / terminal activa</span><span><kbd class="mdv-kbd">Alt+Shift+W</kbd> (o <kbd class="mdv-kbd">q</kbd> en MD)</span></div>
+            <div class="mdv-help-row"><span>Igualar splits 50:50 en ambas zonas</span><span><kbd class="mdv-kbd">Espacio =</kbd></span></div>
           </div>
           <div class="mdv-help-section">
-            <h4>Navegador de Archivos</h4>
-            <div class="mdv-help-row"><span>Entrar / salir del árbol</span><span><kbd class="mdv-kbd">Alt + h</kbd> / <kbd class="mdv-kbd">Alt + l</kbd></span></div>
-            <div class="mdv-help-row"><span>Mover cursor arriba / abajo</span><span><kbd class="mdv-kbd">j</kbd> / <kbd class="mdv-kbd">k</kbd></span></div>
+            <h4>Navegador de MD (Izquierda)</h4>
+            <div class="mdv-help-row"><span>Subir / bajar por archivos</span><span><kbd class="mdv-kbd">j</kbd> / <kbd class="mdv-kbd">k</kbd></span></div>
             <div class="mdv-help-row"><span>Abrir archivo / carpeta</span><span><kbd class="mdv-kbd">o</kbd> o <kbd class="mdv-kbd">Enter</kbd></span></div>
-            <div class="mdv-help-row"><span>Preview sin salir / Abrir Split</span><span><kbd class="mdv-kbd">O</kbd> / <kbd class="mdv-kbd">v</kbd></span></div>
-            <div class="mdv-help-row"><span>Expandir / cerrar carpeta</span><span><kbd class="mdv-kbd">l</kbd> / <kbd class="mdv-kbd">h</kbd></span></div>
+            <div class="mdv-help-row"><span>Preview sin salir / Abrir Split MD</span><span><kbd class="mdv-kbd">O</kbd> / <kbd class="mdv-kbd">v</kbd></span></div>
+            <div class="mdv-help-row"><span>Expandir / cerrar subcarpeta</span><span><kbd class="mdv-kbd">l</kbd> / <kbd class="mdv-kbd">h</kbd></span></div>
             <div class="mdv-help-row"><span>Filtro rápido</span><span><kbd class="mdv-kbd">Ctrl+P</kbd></span></div>
           </div>
           <div class="mdv-help-section">
-            <h4>Lectura y Letra</h4>
+            <h4>Lectura Markdown</h4>
             <div class="mdv-help-row"><span>Letra A+ / A− / 100%</span><span><kbd class="mdv-kbd">+</kbd> · <kbd class="mdv-kbd">-</kbd> · <kbd class="mdv-kbd">0</kbd></span></div>
             <div class="mdv-help-row"><span>Bajar / Subir · Media pág.</span><span><kbd class="mdv-kbd">j</kbd>/<kbd class="mdv-kbd">k</kbd> · <kbd class="mdv-kbd">d</kbd>/<kbd class="mdv-kbd">u</kbd></span></div>
             <div class="mdv-help-row"><span>Inicio / Final · Secciones</span><span><kbd class="mdv-kbd">gg</kbd>/<kbd class="mdv-kbd">G</kbd> · <kbd class="mdv-kbd">]]</kbd>/<kbd class="mdv-kbd">[[</kbd></span></div>
             <div class="mdv-help-row"><span>Carrusel anterior / siguiente</span><span><kbd class="mdv-kbd">h</kbd> / <kbd class="mdv-kbd">l</kbd></span></div>
-            <div class="mdv-help-row"><span>Buscar / Siguiente / Anterior</span><span><kbd class="mdv-kbd">/</kbd> · <kbd class="mdv-kbd">n</kbd> · <kbd class="mdv-kbd">N</kbd></span></div>
+            <div class="mdv-help-row"><span>Buscar / Índice / Archivos / Tema</span><span><kbd class="mdv-kbd">/</kbd> · <kbd class="mdv-kbd">t</kbd> · <kbd class="mdv-kbd">e</kbd> · <kbd class="mdv-kbd">c</kbd></span></div>
           </div>
         </div>
       </div>`;
@@ -1362,23 +1500,27 @@
       e.preventDefault();
       e.stopPropagation();
       const file = splitOpenBtn.getAttribute('data-open-in-split');
-      if (file) await splitPane(focusedPaneId, 'vertical', 'markdown', { filePath: file });
+      if (file) await splitMarkdownPane(focusedMdPaneId, 'vertical', file);
       return;
     }
 
     const paneActionBtn = e.target.closest('[data-pane-action]');
     if (paneActionBtn) {
       const action = paneActionBtn.getAttribute('data-pane-action');
-      const pid = paneActionBtn.getAttribute('data-target-pane') || focusedPaneId;
-      if (action === 'md-right') await splitPane(pid, 'vertical', 'markdown');
-      else if (action === 'term-right') await splitPane(pid, 'vertical', 'terminal');
-      else if (action === 'term-down') await splitPane(pid, 'horizontal', 'terminal');
+      const pid = paneActionBtn.getAttribute('data-target-pane');
+      if (action === 'md-right') await splitMarkdownPane(pid, 'vertical');
+      else if (action === 'md-down') await splitMarkdownPane(pid, 'horizontal');
+      else if (action === 'term-right') splitTerminalPane(pid, 'vertical');
+      else if (action === 'term-down') splitTerminalPane(pid, 'horizontal');
       return;
     }
 
     const paneCloseBtn = e.target.closest('[data-pane-close]');
     if (paneCloseBtn) {
-      closePaneById(paneCloseBtn.getAttribute('data-pane-close'));
+      const id = paneCloseBtn.getAttribute('data-pane-close');
+      const kind = paneCloseBtn.getAttribute('data-close-kind');
+      if (kind === 'terminal') closeTerminalPane(id);
+      else closeMarkdownPane(id);
       return;
     }
 
@@ -1391,9 +1533,9 @@
     if (tocAnchor) {
       e.preventDefault();
       const id = tocAnchor.getAttribute('href')?.slice(1);
-      const pane = activePane();
-      if (id && pane?.kind === 'markdown') {
-        pane.article.querySelector(`#${CSS.escape(id)}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      const mp = activeMdPane();
+      if (id && mp) {
+        mp.article.querySelector(`#${CSS.escape(id)}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }
       return;
     }
@@ -1448,19 +1590,13 @@
       const url = new URL(mdLink.href, window.location.origin);
       const targetFile = url.searchParams.get('file');
       if (targetFile) {
-        const cur = activePane();
         if (e.altKey || e.shiftKey) {
-          await splitPane(focusedPaneId, 'vertical', 'markdown', { filePath: targetFile });
-        } else if (cur?.kind === 'markdown') {
-          await loadDocumentInPane(cur.id, targetFile, { pushState: true, hash: url.hash });
-          setFocusZone('pane', cur.id, false);
+          await splitMarkdownPane(focusedMdPaneId, 'vertical', targetFile);
         } else {
-          const existingMd = (lastMarkdownPaneId && panesById.get(lastMarkdownPaneId)) || allMarkdownPanes()[0];
-          if (existingMd) {
-            await loadDocumentInPane(existingMd.id, targetFile, { pushState: true, hash: url.hash });
-            setFocusZone('pane', existingMd.id, false);
-          } else {
-            await splitPane(focusedPaneId, 'vertical', 'markdown', { filePath: targetFile });
+          const mp = activeMdPane();
+          if (mp) {
+            await loadDocumentInPane(mp.id, targetFile, { pushState: true, hash: url.hash });
+            setFocusZone('markdown', mp.id, false);
           }
         }
       }
@@ -1468,7 +1604,7 @@
   });
 
   // =========================================================================
-  // GLOBAL KEYBOARD ENGINE (Capture phase)
+  // GLOBAL KEYBOARD ENGINE
   // =========================================================================
   let pendingPrefix = '';
   let countPrefix = '';
@@ -1495,8 +1631,8 @@
   }
 
   function jumpSection(dir) {
-    const pane = activePane();
-    if (pane?.kind !== 'markdown' || !pane.headings.length) return;
+    const pane = activeMdPane();
+    if (!pane || !pane.headings.length) return;
     const scrollerTop = pane.scroller.getBoundingClientRect().top;
     if (dir > 0) {
       const next = pane.headings.find((h) => h.getBoundingClientRect().top > scrollerTop + 28);
@@ -1508,8 +1644,8 @@
   }
 
   function switchSiblingFile(dir) {
-    const pane = activePane();
-    if (!fileListEl || pane?.kind !== 'markdown') return;
+    const pane = activeMdPane();
+    if (!fileListEl || !pane) return;
     const items = Array.from(fileListEl.querySelectorAll('.mdv-file-item'));
     if (items.length <= 1) return;
     const curIdx = items.findIndex((li) => li.getAttribute('data-file-path') === pane.filePath);
@@ -1526,67 +1662,76 @@
       const isAltGraph = Boolean(e.getModifierState && e.getModifierState('AltGraph'));
       const isCtrlAlt = (e.ctrlKey && e.altKey && !e.metaKey) || (!inInput && isAltGraph && !e.metaKey);
 
-      // 1. Global Split Creation Shortcuts (work inside Markdown, Terminal, AND File Tree!)
+      // 1. Context-aware Ctrl+Alt+R / Ctrl+Alt+D Splits:
+      //    - In Terminal Zone => splits Terminal Zone (Right / Down)!
+      //    - In Markdown / Files Zone => splits Markdown Zone (Right / Down)!
       if (isCtrlAlt) {
-        // Ctrl+Alt+Shift+R/D OR Ctrl+Alt+T/B => WSL Terminal Split!
         if ((e.shiftKey && e.code === 'KeyR') || e.code === 'KeyT') {
           e.preventDefault();
           e.stopPropagation();
-          await splitPane(focusedPaneId, 'vertical', 'terminal');
+          splitTerminalPane(focusedTermPaneId, 'vertical');
           return;
         }
         if ((e.shiftKey && e.code === 'KeyD') || e.code === 'KeyB') {
           e.preventDefault();
           e.stopPropagation();
-          await splitPane(focusedPaneId, 'horizontal', 'terminal');
+          splitTerminalPane(focusedTermPaneId, 'horizontal');
           return;
         }
-        // Ctrl+Alt+R / Ctrl+Alt+D => Markdown Split!
         if (!e.shiftKey && (e.code === 'KeyR' || e.key?.toLowerCase() === 'r')) {
           e.preventDefault();
           e.stopPropagation();
-          const selFile =
-            focusZone === 'files' && treeCursorEl?.classList.contains('mdv-file-item')
-              ? treeCursorEl.getAttribute('data-file-path')
-              : null;
-          await splitPane(focusedPaneId, 'vertical', 'markdown', { filePath: selFile });
+          if (focusZone === 'terminal') {
+            splitTerminalPane(focusedTermPaneId, 'vertical');
+          } else {
+            const selFile =
+              focusZone === 'files' && treeCursorEl?.classList.contains('mdv-file-item')
+                ? treeCursorEl.getAttribute('data-file-path')
+                : null;
+            await splitMarkdownPane(focusedMdPaneId, 'vertical', selFile);
+          }
           return;
         }
         if (!e.shiftKey && (e.code === 'KeyD' || e.key?.toLowerCase() === 'd')) {
           e.preventDefault();
           e.stopPropagation();
-          const selFile =
-            focusZone === 'files' && treeCursorEl?.classList.contains('mdv-file-item')
-              ? treeCursorEl.getAttribute('data-file-path')
-              : null;
-          await splitPane(focusedPaneId, 'horizontal', 'markdown', { filePath: selFile });
+          if (focusZone === 'terminal') {
+            splitTerminalPane(focusedTermPaneId, 'horizontal');
+          } else {
+            const selFile =
+              focusZone === 'files' && treeCursorEl?.classList.contains('mdv-file-item')
+                ? treeCursorEl.getAttribute('data-file-path')
+                : null;
+            await splitMarkdownPane(focusedMdPaneId, 'horizontal', selFile);
+          }
           return;
         }
       }
 
-      // Alt + Shift + R / D (WSL Terminal Right / Down) & Alt + Shift + W (Close active pane anywhere!)
+      // Alt + Shift + R / D (explicitly split Terminal Zone from anywhere) & Alt + Shift + W (close active pane)
       if (e.altKey && e.shiftKey && !e.ctrlKey && !e.metaKey) {
         if (e.code === 'KeyR') {
           e.preventDefault();
           e.stopPropagation();
-          await splitPane(focusedPaneId, 'vertical', 'terminal');
+          splitTerminalPane(focusedTermPaneId, 'vertical');
           return;
         }
         if (e.code === 'KeyD') {
           e.preventDefault();
           e.stopPropagation();
-          await splitPane(focusedPaneId, 'horizontal', 'terminal');
+          splitTerminalPane(focusedTermPaneId, 'horizontal');
           return;
         }
         if (e.code === 'KeyW') {
           e.preventDefault();
           e.stopPropagation();
-          if (focusedPaneId) closePaneById(focusedPaneId);
+          if (focusZone === 'terminal' && focusedTermPaneId) closeTerminalPane(focusedTermPaneId);
+          else if (focusedMdPaneId) closeMarkdownPane(focusedMdPaneId);
           return;
         }
       }
 
-      // 2. Spatial Alt + h / j / k / l across [Archivos] <-> [Markdown Panes] <-> [WSL Terminals]!
+      // 2. Spatial Alt + h / j / k / l across [Navegador MD] <-> [Visor MD] <-> [Terminales WSL]
       if (
         e.altKey &&
         !e.ctrlKey &&
@@ -1603,11 +1748,12 @@
         return;
       }
 
-      // If user is typing inside a WSL Terminal (or form input), let all normal keys go directly to zsh/bash!
-      const pane = activePane();
-      if (inInput || (focusZone === 'pane' && pane?.kind === 'terminal')) {
+      // Inside Terminal or Input, pass all normal keys straight to shell/input
+      if (inInput || focusZone === 'terminal') {
         return;
       }
+
+      const pane = activeMdPane();
 
       if (e.key === 'Escape') {
         resetVimPending();
@@ -1620,7 +1766,7 @@
           return;
         }
         if (focusZone === 'files') {
-          setFocusZone('pane', focusedPaneId);
+          setFocusZone('markdown', focusedMdPaneId);
           return;
         }
         if (searchHits.length > 0) {
@@ -1630,33 +1776,31 @@
         return;
       }
 
-      // <Leader> (Space) Split Window commands
       if (pendingPrefix === '␣') {
         resetVimPending();
         e.preventDefault();
         const k = e.key;
-        if (k === 'v' || k === '|') await splitPane(focusedPaneId, 'vertical', 'markdown');
-        else if (k === 's' || k === '-') await splitPane(focusedPaneId, 'horizontal', 'markdown');
-        else if (k === 't') await splitPane(focusedPaneId, 'vertical', 'terminal');
-        else if (k === 'T') await splitPane(focusedPaneId, 'horizontal', 'terminal');
+        if (k === 'v' || k === '|') await splitMarkdownPane(focusedMdPaneId, 'vertical');
+        else if (k === 's' || k === '-') await splitMarkdownPane(focusedMdPaneId, 'horizontal');
+        else if (k === 't') splitTerminalPane(focusedTermPaneId, 'vertical');
+        else if (k === 'T') splitTerminalPane(focusedTermPaneId, 'horizontal');
         else if (k === 'h') handleSpatialFocusNavigation('left');
         else if (k === 'l') handleSpatialFocusNavigation('right');
         else if (k === 'k') handleSpatialFocusNavigation('up');
         else if (k === 'j') handleSpatialFocusNavigation('down');
         else if (k === '=') {
-          equalizeAllBranches();
+          equalizeTree(mdRootTree);
+          equalizeTree(termRootTree);
+          fitAllTerminals();
           showToast('Splits igualados 50 / 50');
         } else if (k === 'y') {
           toggleSyncScroll();
         } else if (k === 'q' || k === 'c') {
-          if (focusedPaneId) closePaneById(focusedPaneId);
-        } else if (k === 'o') {
-          if (focusedPaneId) closeOtherPanes(focusedPaneId);
+          if (focusedMdPaneId) closeMarkdownPane(focusedMdPaneId);
         }
         return;
       }
 
-      // Ctrl shortcuts in Markdown / Files mode
       if (e.ctrlKey && !e.altKey && !e.metaKey) {
         if (e.key === 'p') {
           e.preventDefault();
@@ -1665,7 +1809,7 @@
           fileFilterEl?.select();
           return;
         }
-        if (focusZone === 'pane' && pane?.kind === 'markdown') {
+        if (focusZone === 'markdown' && pane) {
           const scroller = pane.scroller;
           if (e.key === 'd') {
             e.preventDefault();
@@ -1791,21 +1935,21 @@
             return;
           case 'q':
             e.preventDefault();
-            setFocusZone('pane', focusedPaneId);
+            setFocusZone('markdown', focusedMdPaneId);
             return;
         }
         return;
       }
 
       // MARKDOWN PANE VIM MODE
-      if (!pane || pane.kind !== 'markdown') return;
+      if (!pane) return;
       const scroller = pane.scroller;
 
-      if (e.key === 'Tab' && panesById.size > 1) {
+      if (e.key === 'Tab' && mdPanes.size > 1) {
         e.preventDefault();
-        const ids = Array.from(panesById.keys());
+        const ids = Array.from(mdPanes.keys());
         const nextId = ids[(ids.indexOf(pane.id) + 1) % ids.length];
-        setFocusZone('pane', nextId);
+        setFocusZone('markdown', nextId);
         return;
       }
 
@@ -1941,11 +2085,11 @@
           break;
         case 'V':
           e.preventDefault();
-          await splitPane(pane.id, 'vertical', 'markdown');
+          await splitMarkdownPane(pane.id, 'vertical');
           break;
         case 'S':
           e.preventDefault();
-          await splitPane(pane.id, 'horizontal', 'markdown');
+          await splitMarkdownPane(pane.id, 'horizontal');
           break;
         case 'h': {
           const car = findVisibleCarouselInPane(pane);
@@ -2021,7 +2165,7 @@
           break;
         case 'q':
           e.preventDefault();
-          closePaneById(pane.id);
+          closeMarkdownPane(pane.id);
           break;
       }
     },
@@ -2032,19 +2176,17 @@
   // SCROLL-SPY, DOCUMENT LOADING & LIVE-RELOAD
   // =========================================================================
   function refreshHeadings(pane) {
-    if (pane?.kind !== 'markdown') return;
     pane.headings = Array.from(pane.article.querySelectorAll('.mdv-heading[id]'));
   }
 
   function onMarkdownPaneScroll(pane) {
-    if (pane.kind !== 'markdown') return;
     const scroller = pane.scroller;
     const scrollTop = scroller.scrollTop;
     const maxScroll = scroller.scrollHeight - scroller.clientHeight;
 
     if (syncScroll && !isSyncingScroll && maxScroll > 0) {
       isSyncingScroll = true;
-      for (const other of allMarkdownPanes()) {
+      for (const other of mdPanes.values()) {
         if (other.id === pane.id) continue;
         const otherMax = other.scroller.scrollHeight - other.scroller.clientHeight;
         if (otherMax > 0) {
@@ -2056,9 +2198,9 @@
       });
     }
 
-    if (pane.id !== focusedPaneId || focusZone === 'files') return;
+    if (pane.id !== focusedMdPaneId) return;
 
-    if (vimPosEl) {
+    if (focusZone === 'markdown' && vimPosEl) {
       if (maxScroll <= 4) vimPosEl.textContent = 'ALL';
       else if (scrollTop <= 4) vimPosEl.textContent = 'TOP';
       else if (scrollTop >= maxScroll - 4) vimPosEl.textContent = 'BOT';
@@ -2092,9 +2234,9 @@
 
   function updateFileTreeMarkers() {
     if (!fileListEl) return;
-    const cur = activePane();
-    const focusedPath = cur?.kind === 'markdown' ? cur.filePath : '';
-    const openMdPaths = new Set(allMarkdownPanes().map((p) => p.filePath));
+    const cur = activeMdPane();
+    const focusedPath = cur?.filePath || '';
+    const openMdPaths = new Set(Array.from(mdPanes.values()).map((p) => p.filePath));
     let activeLi = null;
 
     fileListEl.querySelectorAll('.mdv-file-item').forEach((li) => {
@@ -2121,8 +2263,8 @@
     filePath,
     { pushState = false, hash = '', preserveScroll = false, isLiveReload = false } = {}
   ) {
-    const pane = panesById.get(paneId);
-    if (!pane || pane.kind !== 'markdown' || !filePath) return;
+    const pane = mdPanes.get(paneId);
+    if (!pane || !filePath) return;
 
     const isSameFile = filePath === pane.filePath;
     const scrollBefore = pane.scroller.scrollTop;
@@ -2177,7 +2319,7 @@
     initHorizontalBlockScrollbars(pane.article);
     refreshHeadings(pane);
 
-    if (pane.id === focusedPaneId) {
+    if (pane.id === focusedMdPaneId) {
       if (fileNameEl) fileNameEl.textContent = pane.relPath;
       document.title = `${data.title || data.fileName} — mdv`;
       renderToc(pane.toc);
@@ -2202,7 +2344,7 @@
 
   window.addEventListener('popstate', (e) => {
     const f = e.state?.file || new URLSearchParams(location.search).get('file');
-    const md = allMarkdownPanes()[0];
+    const md = activeMdPane();
     if (f && md) loadDocumentInPane(md.id, f, { pushState: false, hash: location.hash });
   });
 
@@ -2214,14 +2356,14 @@
       let payload = {};
       try { payload = JSON.parse(ev.data || '{}'); } catch {}
       if (payload.reason === 'tree') {
-        const md = allMarkdownPanes()[0];
+        const md = activeMdPane();
         if (md?.filePath) {
           loadDocumentInPane(md.id, md.filePath, { preserveScroll: true, isLiveReload: false });
         }
         return;
       }
       const changed = payload.file;
-      for (const mp of allMarkdownPanes()) {
+      for (const mp of mdPanes.values()) {
         if (!changed || mp.filePath === changed) {
           loadDocumentInPane(mp.id, mp.filePath, { preserveScroll: true, isLiveReload: true });
         }
@@ -2229,7 +2371,11 @@
     });
   }
 
-  // Boot initial root Markdown pane
+  // =========================================================================
+  // BOOT:
+  //   1) Root Markdown Pane in #mdv-md-zone
+  //   2) Default WSL Terminal Pane ALWAYS open in #mdv-term-zone!
+  // =========================================================================
   if (initCfg.maximized) {
     try {
       if (window.outerWidth < screen.availWidth - 24 || window.outerHeight < screen.availHeight - 24) {
@@ -2239,28 +2385,32 @@
     } catch {}
   }
 
-  const rootPane = createMarkdownPane({
+  const rootMdPane = createMarkdownPane({
     filePath: initCfg.currentFile || '',
     relPath: initCfg.initialRelPath || '',
     html: initialHtml,
     toc: initCfg.initialToc || []
   });
-  rootTree = rootPane;
-  panesRootEl.appendChild(rootPane.el);
-  focusedPaneId = rootPane.id;
+  mdRootTree = rootMdPane;
+  mdZoneEl.appendChild(rootMdPane.el);
+  focusedMdPaneId = rootMdPane.id;
+
+  const rootTermPane = createTerminalPane();
+  termRootTree = rootTermPane;
+  termZoneEl.appendChild(rootTermPane.el);
+  focusedTermPaneId = rootTermPane.id;
+  rootTermPane.boot();
 
   applyZoom(zoomPercent, false);
-  initCarouselsForPane(rootPane);
-  renderMermaidDiagrams(rootPane.article).then(() => initHorizontalBlockScrollbars(rootPane.article));
-  initHorizontalBlockScrollbars(rootPane.article);
-  refreshHeadings(rootPane);
-  setFocusZone('pane', rootPane.id, false);
-  updatePaneCountAttr();
+  initCarouselsForPane(rootMdPane);
+  renderMermaidDiagrams(rootMdPane.article).then(() => initHorizontalBlockScrollbars(rootMdPane.article));
+  initHorizontalBlockScrollbars(rootMdPane.article);
+  refreshHeadings(rootMdPane);
+  setFocusZone('markdown', rootMdPane.id, false);
+  updateZoneCounts();
   connectEvents();
 
   if (initCfg.splitFile) {
-    splitPane(rootPane.id, initCfg.splitDirection || 'vertical', 'markdown', {
-      filePath: initCfg.splitFile
-    });
+    splitMarkdownPane(rootMdPane.id, initCfg.splitDirection || 'vertical', initCfg.splitFile);
   }
 })();
