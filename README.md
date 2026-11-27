@@ -83,7 +83,7 @@ mdv -b demo.md
 | Abrir / cerrar todos los `<details>` | `zR` / `zM` (`za` alterna) |
 | Buscar en documento / siguiente / anterior | `/` · `n` · `N` · `Esc` |
 | Filtrar archivos `.md` del árbol izquierdo | `Ctrl+P` |
-| Cambiar foco entre Navegador de Archivos y Paneles | `Alt + ←` / `Alt + →` / `Alt + ↑` / `Alt + ↓` |
+| Cambiar foco entre Navegador de Archivos y Paneles | `Alt + h` / `Alt + j` / `Alt + k` / `Alt + l` |
 | En el Navegador de Archivos: mover / abrir / preview | `j`/`k` · `o` o `Enter` · `O` (sin salir del árbol) |
 | En el Navegador de Archivos: expandir / cerrar carpeta | `l` / `h` (y `v` abre en Split) |
 | Archivo `.md` anterior / siguiente | `[f` / `]f` |
@@ -92,7 +92,7 @@ mdv -b demo.md
 | Zoom `+` / `-` / restablecer | `+` · `-` · `0` |
 | Copiar ruta actual / bloque de código visible | `yy` / `yc` |
 | Split Right (lado a lado) / Split Down (arriba/abajo) | `Ctrl+Alt+R` / `Ctrl+Alt+D` (o `Espacio v` / `Espacio s`) |
-| Cambiar foco entre paneles Split | `Alt + Flechas` o `Tab` |
+| Cambiar foco entre paneles Split | `Alt + h/j/k/l` o `Tab` |
 | Abrir archivo del árbol en el otro panel Split | `Alt + Clic` (o icono Split al pasar ratón) |
 | Intercambiar paneles / Igualar 50:50 / Sync scroll | `Espacio x` · `Espacio =` · `Espacio y` |
 | Cerrar panel Split activo / Dejar solo panel activo | `q` (o `Espacio q`) · `Espacio o` |

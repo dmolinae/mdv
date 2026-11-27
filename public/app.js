@@ -322,12 +322,12 @@
     }
   }
 
-  // Spatial Alt + Arrow navigation across [Archivos] <-> [Pane 0] <-> [Pane 1]
-  function handleAltArrowNavigation(arrowKey) {
+  // Spatial Alt + h/j/k/l navigation across [Archivos] <-> [Pane 0] <-> [Pane 1]
+  function handleSpatialFocusNavigation(dir) {
     if (document.activeElement?.matches('input, textarea, select')) {
       document.activeElement.blur();
     }
-    if (arrowKey === 'ArrowLeft') {
+    if (dir === 'left') {
       if (focusZone === 'pane') {
         if (splitMode === 'vertical' && focusedPaneIdx === 1) {
           setFocusZone('pane', 0);
@@ -335,19 +335,19 @@
           setFocusZone('files');
         }
       }
-    } else if (arrowKey === 'ArrowRight') {
+    } else if (dir === 'right') {
       if (focusZone === 'files') {
         setFocusZone('pane', splitMode === 'vertical' ? 0 : focusedPaneIdx);
       } else if (focusZone === 'pane' && splitMode === 'vertical' && focusedPaneIdx === 0) {
         setFocusZone('pane', 1);
       }
-    } else if (arrowKey === 'ArrowDown') {
+    } else if (dir === 'down') {
       if (focusZone === 'pane' && splitMode === 'horizontal' && focusedPaneIdx === 0) {
         setFocusZone('pane', 1);
       } else if (focusZone === 'files') {
         moveTreeCursor(1);
       }
-    } else if (arrowKey === 'ArrowUp') {
+    } else if (dir === 'up') {
       if (focusZone === 'pane' && splitMode === 'horizontal' && focusedPaneIdx === 1) {
         setFocusZone('pane', 0);
       } else if (focusZone === 'files') {
@@ -836,7 +836,7 @@
         <div class="mdv-help-grid">
           <div class="mdv-help-section">
             <h4>Foco y Navegador de Archivos</h4>
-            <div class="mdv-help-row"><span>Cambiar entre Archivos y Paneles</span><span><kbd class="mdv-kbd">Alt + ← → ↑ ↓</kbd></span></div>
+            <div class="mdv-help-row"><span>Cambiar entre Archivos y Paneles</span><span><kbd class="mdv-kbd">Alt + h / j / k / l</kbd></span></div>
             <div class="mdv-help-row"><span>Moverse en árbol de archivos</span><span><kbd class="mdv-kbd">j</kbd> / <kbd class="mdv-kbd">k</kbd></span></div>
             <div class="mdv-help-row"><span>Abrir archivo / carpeta</span><span><kbd class="mdv-kbd">o</kbd> o <kbd class="mdv-kbd">Enter</kbd></span></div>
             <div class="mdv-help-row"><span>Previsualizar sin salir del árbol</span><span><kbd class="mdv-kbd">O</kbd></span></div>
@@ -1047,17 +1047,19 @@
         }
       }
 
-      // 2. Alt + Arrow keys: switch focus cleanly between File Browser <-> Open Document Panes
+      // 2. Alt + h / j / k / l: switch focus cleanly between File Browser <-> Open Document Panes
       if (
         e.altKey &&
         !e.ctrlKey &&
         !e.metaKey &&
-        ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)
+        !isAltGraph &&
+        ['KeyH', 'KeyJ', 'KeyK', 'KeyL'].includes(e.code)
       ) {
         e.preventDefault();
         e.stopPropagation();
         resetVimPending();
-        handleAltArrowNavigation(e.key);
+        const dirMap = { KeyH: 'left', KeyL: 'right', KeyJ: 'down', KeyK: 'up' };
+        handleSpatialFocusNavigation(dirMap[e.code]);
         return;
       }
 
@@ -1097,9 +1099,9 @@
         else if (k === 'w' || k === ' ') {
           if (splitMode !== 'none') setFocusZone('pane', focusedPaneIdx === 0 ? 1 : 0);
         } else if (k === 'h' || k === 'arrowleft') {
-          handleAltArrowNavigation('ArrowLeft');
+          handleSpatialFocusNavigation('left');
         } else if (k === 'l' || k === 'arrowright') {
-          handleAltArrowNavigation('ArrowRight');
+          handleSpatialFocusNavigation('right');
         } else if (k === 'k' || k === 'arrowup') {
           if (splitMode === 'horizontal') setFocusZone('pane', 0);
         } else if (k === 'j' || k === 'arrowdown') {
