@@ -1,6 +1,7 @@
 (function () {
   const THEMES = ['tokyo', 'github-dark', 'catppuccin', 'light'];
 
+  const sidebarFilesEl = document.querySelector('.mdv-sidebar-files');
   const panesRootEl = document.getElementById('mdv-panes-root');
   const resizerEl = document.getElementById('mdv-split-resizer');
   const tocListEl = document.getElementById('mdv-toc-list');
@@ -76,16 +77,14 @@
     scope
       .querySelectorAll('.mdv-code-card pre, .mdv-table-wrap, .mdv-mermaid-stage, .mdv-math-block')
       .forEach((el) => {
-        if (!OverlayScrollbars.valid(OverlayScrollbars(el))) {
-          OverlayScrollbars(el, OS_BLOCK_OPTS);
-        } else {
-          OverlayScrollbars(el, OS_BLOCK_OPTS);
-        }
+        OverlayScrollbars(el, OS_BLOCK_OPTS);
       });
   }
 
   let splitMode = 'none'; // 'none' | 'vertical' | 'horizontal'
   let focusedPaneIdx = 0;
+  let focusZone = 'pane'; // 'pane' | 'files'
+  let treeCursorEl = null; // Currently highlighted .mdv-file-item or .mdv-folder-summary in 'files' zone
   let syncScroll = false;
   let isSyncingScroll = false;
   let splitRatio = 0.5;
@@ -119,8 +118,9 @@
   const filesScrollEl = document.getElementById('mdv-files-scroll');
   const tocScrollEl = document.getElementById('mdv-toc-scroll');
   const modalScrollEl = document.getElementById('mdv-modal-scroll');
+  let filesOsInstance = null;
   if (OverlayScrollbars) {
-    if (filesScrollEl) OverlayScrollbars(filesScrollEl, OS_SIDE_OPTS);
+    if (filesScrollEl) filesOsInstance = OverlayScrollbars(filesScrollEl, OS_SIDE_OPTS);
     if (tocScrollEl) OverlayScrollbars(tocScrollEl, OS_SIDE_OPTS);
     if (modalScrollEl) {
       OverlayScrollbars(modalScrollEl, {
@@ -201,6 +201,9 @@
     const hidden = document.body.classList.toggle('hide-files');
     btnFiles?.classList.toggle('is-active', !hidden);
     localStorage.setItem('mdv-hide-files', hidden ? '1' : '0');
+    if (hidden && focusZone === 'files') {
+      setFocusZone('pane', focusedPaneIdx, false);
+    }
   }
 
   function toggleTocPanel() {
@@ -213,6 +216,144 @@
     btnWide?.classList.toggle('is-active', wide);
     localStorage.setItem('mdv-wide', wide ? '1' : '0');
     showToast(wide ? 'Ancho: expandido' : 'Ancho: lectura');
+  }
+
+  // Focus Zone & Vim File Browser Cursor Management ('files' <-> 'pane')
+  function getNavigableTreeItems() {
+    if (!fileListEl) return [];
+    const result = [];
+    function collectFromUl(ul) {
+      for (const li of ul.children) {
+        if (li.hidden) continue;
+        if (li.classList.contains('mdv-tree-dir')) {
+          const det = li.querySelector(':scope > details.mdv-folder-details');
+          const sum = det?.querySelector(':scope > summary.mdv-folder-summary');
+          if (sum) result.push(sum);
+          if (det?.open) {
+            const subUl = det.querySelector(':scope > ul.mdv-tree-children');
+            if (subUl) collectFromUl(subUl);
+          }
+        } else if (li.classList.contains('mdv-file-item')) {
+          result.push(li);
+        }
+      }
+    }
+    collectFromUl(fileListEl);
+    return result;
+  }
+
+  function setTreeCursor(el) {
+    if (treeCursorEl) treeCursorEl.classList.remove('is-tree-cursor');
+    treeCursorEl = el || null;
+    if (treeCursorEl && focusZone === 'files') {
+      treeCursorEl.classList.add('is-tree-cursor');
+      treeCursorEl.scrollIntoView({ block: 'nearest' });
+    }
+  }
+
+  function moveTreeCursor(delta) {
+    const items = getNavigableTreeItems();
+    if (!items.length) return;
+    let curIdx = treeCursorEl ? items.indexOf(treeCursorEl) : -1;
+    if (curIdx === -1) {
+      const currentFileLi = items.find((el) => el.classList?.contains('is-current'));
+      curIdx = currentFileLi ? items.indexOf(currentFileLi) : 0;
+    } else {
+      curIdx = Math.min(items.length - 1, Math.max(0, curIdx + delta));
+    }
+    setTreeCursor(items[curIdx]);
+  }
+
+  async function activateTreeCursorItem({ openInSplit = false, stayInFiles = false } = {}) {
+    if (!treeCursorEl) {
+      moveTreeCursor(0);
+      if (!treeCursorEl) return;
+    }
+    if (treeCursorEl.classList.contains('mdv-folder-summary')) {
+      const det = treeCursorEl.closest('details.mdv-folder-details');
+      if (det) det.open = !det.open;
+      return;
+    }
+    if (treeCursorEl.classList.contains('mdv-file-item')) {
+      const targetPath = treeCursorEl.getAttribute('data-file-path');
+      if (!targetPath) return;
+      if (openInSplit) {
+        await openSplit(splitMode === 'none' ? 'vertical' : splitMode, targetPath);
+        if (stayInFiles) setFocusZone('files', focusedPaneIdx, false);
+      } else {
+        await loadDocumentInPane(focusedPaneIdx, targetPath, { pushState: focusedPaneIdx === 0 });
+        if (!stayInFiles) {
+          setFocusZone('pane', focusedPaneIdx, false);
+        } else {
+          // Re-bind treeCursorEl since tree HTML refreshed
+          const refreshed = fileListEl?.querySelector(`.mdv-file-item[data-file-path="${CSS.escape(targetPath)}"]`);
+          setTreeCursor(refreshed);
+        }
+      }
+    }
+  }
+
+  function setFocusZone(zone, paneIdx = focusedPaneIdx, announce = true) {
+    if (zone === 'files') {
+      if (document.body.classList.contains('hide-files')) {
+        document.body.classList.remove('hide-files');
+        btnFiles?.classList.add('is-active');
+        localStorage.setItem('mdv-hide-files', '0');
+      }
+      focusZone = 'files';
+      sidebarFilesEl?.classList.add('is-zone-focused');
+      panes.forEach((p) => p.section.classList.remove('is-zone-focused'));
+      const items = getNavigableTreeItems();
+      const validExisting = treeCursorEl && items.includes(treeCursorEl) ? treeCursorEl : null;
+      const initialItem =
+        validExisting || items.find((el) => el.classList?.contains('is-current')) || items[0] || null;
+      setTreeCursor(initialItem);
+      if (vimPosEl) vimPosEl.textContent = 'FILES';
+      if (announce) showToast('Foco: Archivos (j/k mover, o/Enter abrir)');
+    } else {
+      focusZone = 'pane';
+      sidebarFilesEl?.classList.remove('is-zone-focused');
+      if (treeCursorEl) treeCursorEl.classList.remove('is-tree-cursor');
+      focusPane(paneIdx);
+      panes.forEach((p, i) => p.section.classList.toggle('is-zone-focused', i === focusedPaneIdx));
+      if (announce) {
+        showToast(splitMode === 'none' ? 'Foco: Documento' : `Foco: Panel ${focusedPaneIdx + 1}`);
+      }
+    }
+  }
+
+  // Spatial Alt + Arrow navigation across [Archivos] <-> [Pane 0] <-> [Pane 1]
+  function handleAltArrowNavigation(arrowKey) {
+    if (document.activeElement?.matches('input, textarea, select')) {
+      document.activeElement.blur();
+    }
+    if (arrowKey === 'ArrowLeft') {
+      if (focusZone === 'pane') {
+        if (splitMode === 'vertical' && focusedPaneIdx === 1) {
+          setFocusZone('pane', 0);
+        } else {
+          setFocusZone('files');
+        }
+      }
+    } else if (arrowKey === 'ArrowRight') {
+      if (focusZone === 'files') {
+        setFocusZone('pane', splitMode === 'vertical' ? 0 : focusedPaneIdx);
+      } else if (focusZone === 'pane' && splitMode === 'vertical' && focusedPaneIdx === 0) {
+        setFocusZone('pane', 1);
+      }
+    } else if (arrowKey === 'ArrowDown') {
+      if (focusZone === 'pane' && splitMode === 'horizontal' && focusedPaneIdx === 0) {
+        setFocusZone('pane', 1);
+      } else if (focusZone === 'files') {
+        moveTreeCursor(1);
+      }
+    } else if (arrowKey === 'ArrowUp') {
+      if (focusZone === 'pane' && splitMode === 'horizontal' && focusedPaneIdx === 1) {
+        setFocusZone('pane', 0);
+      } else if (focusZone === 'files') {
+        moveTreeCursor(-1);
+      }
+    }
   }
 
   // Split View Management
@@ -238,7 +379,10 @@
   function focusPane(idx) {
     if (splitMode === 'none') idx = 0;
     focusedPaneIdx = idx;
-    panes.forEach((p, i) => p.section.classList.toggle('is-focused', i === idx));
+    panes.forEach((p, i) => {
+      p.section.classList.toggle('is-focused', i === idx);
+      p.section.classList.toggle('is-zone-focused', focusZone === 'pane' && i === idx);
+    });
     const p = activePane();
     if (fileNameEl) fileNameEl.textContent = p.relPath || p.filePath.split('/').pop() || '';
     renderToc(p.toc);
@@ -251,7 +395,6 @@
   async function openSplit(direction = 'vertical', targetFile = null) {
     const wasNone = splitMode === 'none';
     if (!wasNone && splitMode === direction && !targetFile) {
-      // Clicking active split mode button toggles split off (closing secondary pane)
       closePane(1);
       return;
     }
@@ -265,11 +408,10 @@
     const fileForPane1 = targetFile || panes[1].filePath || panes[0].filePath;
     await loadDocumentInPane(1, fileForPane1, { preserveScroll: !targetFile && Boolean(panes[1].filePath) });
     if (wasNone && !targetFile) {
-      // Mirror scroll position initially when cloning pane 0 -> pane 1 (just like Vim :vsp)
       panes[1].scroller.scrollTop = panes[0].scroller.scrollTop;
     }
-    focusPane(1);
-    showToast(direction === 'vertical' ? 'Split vertical activo' : 'Split horizontal activo');
+    setFocusZone('pane', 1, false);
+    showToast(direction === 'vertical' ? 'Split Right activo' : 'Split Down activo');
   }
 
   function closePane(idxToClose) {
@@ -278,7 +420,6 @@
       return;
     }
     if (idxToClose === 0) {
-      // Promote pane 1 into pane 0 before hiding pane 1
       copyPaneState(panes[1], panes[0]);
     }
     splitMode = 'none';
@@ -288,7 +429,7 @@
     if (resizerEl) resizerEl.hidden = true;
     applySplitSizes(0.5);
     updateSplitButtonsUI();
-    focusPane(0);
+    setFocusZone('pane', 0, false);
     showToast('Split cerrado');
   }
 
@@ -301,6 +442,7 @@
     if (dst.titleEl) dst.titleEl.textContent = dst.relPath;
     dst.carouselState = new Map(src.carouselState);
     initCarouselsForPane(dst);
+    initHorizontalBlockScrollbars(dst.article);
     refreshHeadings(dst);
     dst.scroller.scrollTop = srcScroll;
   }
@@ -324,6 +466,7 @@
     if (panes[1].titleEl) panes[1].titleEl.textContent = tmp.relPath;
     panes[1].carouselState = tmp.carouselState;
     initCarouselsForPane(panes[1]);
+    initHorizontalBlockScrollbars(panes[1].article);
     refreshHeadings(panes[1]);
     panes[0].scroller.scrollTop = scroll1;
     panes[1].scroller.scrollTop = scroll0;
@@ -364,13 +507,20 @@
     showToast('Paneles 50 / 50');
   });
 
-  // Focus pane on click inside it
+  // Focus zones on pointer interaction
   panes.forEach((p) => {
     p.section.addEventListener('pointerdown', () => {
-      if (splitMode !== 'none' && focusedPaneIdx !== p.idx) {
-        focusPane(p.idx);
+      if (focusZone !== 'pane' || (splitMode !== 'none' && focusedPaneIdx !== p.idx)) {
+        setFocusZone('pane', p.idx, false);
       }
     });
+  });
+
+  sidebarFilesEl?.addEventListener('pointerdown', (e) => {
+    if (e.target.closest('input, button')) return;
+    if (focusZone !== 'files') {
+      setFocusZone('files', focusedPaneIdx, false);
+    }
   });
 
   themeSelect?.addEventListener('change', (e) => applyTheme(e.target.value, true));
@@ -406,6 +556,10 @@
         if (det) det.open = true;
       }
     });
+    if (focusZone === 'files') {
+      const items = getNavigableTreeItems();
+      setTreeCursor(items[0] || null);
+    }
   }
 
   fileFilterEl?.addEventListener('input', () => applyFileTreeFilter(fileFilterEl.value));
@@ -415,6 +569,11 @@
       fileFilterEl.value = '';
       applyFileTreeFilter('');
       fileFilterEl.blur();
+      setFocusZone('files', focusedPaneIdx, false);
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      fileFilterEl.blur();
+      setFocusZone('files', focusedPaneIdx, false);
     } else if (e.key === 'Enter') {
       e.preventDefault();
       const firstVisible = fileListEl?.querySelector('.mdv-file-item:not([hidden])');
@@ -422,7 +581,10 @@
       if (targetPath) {
         fileFilterEl.blur();
         if (e.altKey || e.shiftKey) openSplit(splitMode === 'none' ? 'vertical' : splitMode, targetPath);
-        else loadDocumentInPane(focusedPaneIdx, targetPath, { pushState: focusedPaneIdx === 0 });
+        else {
+          loadDocumentInPane(focusedPaneIdx, targetPath, { pushState: focusedPaneIdx === 0 });
+          setFocusZone('pane', focusedPaneIdx, false);
+        }
       }
     }
   });
@@ -463,10 +625,10 @@
       });
 
       carousel.addEventListener('keydown', (e) => {
-        if (e.key === 'ArrowLeft') {
+        if (e.key === 'ArrowLeft' && !e.altKey) {
           e.preventDefault();
           goTo(active - 1);
-        } else if (e.key === 'ArrowRight') {
+        } else if (e.key === 'ArrowRight' && !e.altKey) {
           e.preventDefault();
           goTo(active + 1);
         }
@@ -668,35 +830,34 @@
     modalBodyEl.innerHTML = `
       <div data-help-sheet>
         <h3 class="mdv-help-title">
-          <span>Atajos estilo Vim y Split Views en <code>mdv</code></span>
+          <span>Atajos Vim, Navegador de Archivos y Split Views</span>
           <span class="mdv-kbd">Esc / ?</span>
         </h3>
         <div class="mdv-help-grid">
           <div class="mdv-help-section">
-            <h4>Movimiento (Panel activo)</h4>
-            <div class="mdv-help-row"><span>Bajar / Subir línea</span><span><kbd class="mdv-kbd">j</kbd> / <kbd class="mdv-kbd">k</kbd></span></div>
-            <div class="mdv-help-row"><span>Media página abajo / arriba</span><span><kbd class="mdv-kbd">d</kbd> / <kbd class="mdv-kbd">u</kbd></span></div>
-            <div class="mdv-help-row"><span>Página abajo / arriba</span><span><kbd class="mdv-kbd">f</kbd> / <kbd class="mdv-kbd">b</kbd></span></div>
-            <div class="mdv-help-row"><span>Ir al inicio / final</span><span><kbd class="mdv-kbd">g g</kbd> / <kbd class="mdv-kbd">G</kbd></span></div>
-            <div class="mdv-help-row"><span>Siguiente / anterior sección</span><span><kbd class="mdv-kbd">]]</kbd> / <kbd class="mdv-kbd">[[</kbd></span></div>
+            <h4>Foco y Navegador de Archivos</h4>
+            <div class="mdv-help-row"><span>Cambiar entre Archivos y Paneles</span><span><kbd class="mdv-kbd">Alt + ← → ↑ ↓</kbd></span></div>
+            <div class="mdv-help-row"><span>Moverse en árbol de archivos</span><span><kbd class="mdv-kbd">j</kbd> / <kbd class="mdv-kbd">k</kbd></span></div>
+            <div class="mdv-help-row"><span>Abrir archivo / carpeta</span><span><kbd class="mdv-kbd">o</kbd> o <kbd class="mdv-kbd">Enter</kbd></span></div>
+            <div class="mdv-help-row"><span>Previsualizar sin salir del árbol</span><span><kbd class="mdv-kbd">O</kbd></span></div>
+            <div class="mdv-help-row"><span>Expandir / cerrar carpeta</span><span><kbd class="mdv-kbd">l</kbd> / <kbd class="mdv-kbd">h</kbd></span></div>
+            <div class="mdv-help-row"><span>Filtro rápido de archivos</span><span><kbd class="mdv-kbd">Ctrl+P</kbd></span></div>
           </div>
           <div class="mdv-help-section">
             <h4>Split Views</h4>
             <div class="mdv-help-row"><span>Split Right / Split Down</span><span><kbd class="mdv-kbd">Ctrl+Alt+R</kbd> / <kbd class="mdv-kbd">Ctrl+Alt+D</kbd></span></div>
-            <div class="mdv-help-row"><span>Cambiar foco de panel</span><span><kbd class="mdv-kbd">Tab</kbd> o <kbd class="mdv-kbd">Espacio h/l/j/k</kbd></span></div>
+            <div class="mdv-help-row"><span>Alternativa Vim Split</span><span><kbd class="mdv-kbd">Espacio v</kbd> / <kbd class="mdv-kbd">Espacio s</kbd></span></div>
             <div class="mdv-help-row"><span>Intercambiar / Igualar 50:50</span><span><kbd class="mdv-kbd">Espacio x</kbd> / <kbd class="mdv-kbd">Espacio =</kbd></span></div>
             <div class="mdv-help-row"><span>Sincronizar scroll</span><span><kbd class="mdv-kbd">Espacio y</kbd></span></div>
             <div class="mdv-help-row"><span>Cerrar panel / Solo este panel</span><span><kbd class="mdv-kbd">q</kbd> / <kbd class="mdv-kbd">Espacio o</kbd></span></div>
-            <div class="mdv-help-row"><span>Abrir archivo en otro panel</span><span><kbd class="mdv-kbd">Alt + Clic</kbd></span></div>
           </div>
           <div class="mdv-help-section">
-            <h4>Componentes y Vista</h4>
+            <h4>Lectura y Componentes</h4>
+            <div class="mdv-help-row"><span>Bajar / Subir · Media pág.</span><span><kbd class="mdv-kbd">j</kbd>/<kbd class="mdv-kbd">k</kbd> · <kbd class="mdv-kbd">d</kbd>/<kbd class="mdv-kbd">u</kbd></span></div>
+            <div class="mdv-help-row"><span>Inicio / Final · Secciones</span><span><kbd class="mdv-kbd">gg</kbd>/<kbd class="mdv-kbd">G</kbd> · <kbd class="mdv-kbd">]]</kbd>/<kbd class="mdv-kbd">[[</kbd></span></div>
             <div class="mdv-help-row"><span>Carrusel anterior / siguiente</span><span><kbd class="mdv-kbd">h</kbd> / <kbd class="mdv-kbd">l</kbd></span></div>
-            <div class="mdv-help-row"><span>Abrir / cerrar &lt;details&gt;</span><span><kbd class="mdv-kbd">z R</kbd> / <kbd class="mdv-kbd">z M</kbd></span></div>
             <div class="mdv-help-row"><span>Buscar / Siguiente / Anterior</span><span><kbd class="mdv-kbd">/</kbd> · <kbd class="mdv-kbd">n</kbd> · <kbd class="mdv-kbd">N</kbd></span></div>
-            <div class="mdv-help-row"><span>Archivos / Filtro rápido</span><span><kbd class="mdv-kbd">e</kbd> / <kbd class="mdv-kbd">Ctrl+P</kbd></span></div>
-            <div class="mdv-help-row"><span>Índice (TOC) / Ancho / Tema</span><span><kbd class="mdv-kbd">t</kbd> · <kbd class="mdv-kbd">w</kbd> · <kbd class="mdv-kbd">c</kbd></span></div>
-            <div class="mdv-help-row"><span>Zoom / Recargar / Salir</span><span><kbd class="mdv-kbd">+</kbd><kbd class="mdv-kbd">-</kbd><kbd class="mdv-kbd">0</kbd> · <kbd class="mdv-kbd">r</kbd> · <kbd class="mdv-kbd">q</kbd></span></div>
+            <div class="mdv-help-row"><span>Índice / Archivos / Tema</span><span><kbd class="mdv-kbd">t</kbd> · <kbd class="mdv-kbd">e</kbd> · <kbd class="mdv-kbd">c</kbd></span></div>
           </div>
         </div>
       </div>`;
@@ -798,12 +959,13 @@
             pushState: focusedPaneIdx === 0,
             hash: url.hash
           });
+          setFocusZone('pane', focusedPaneIdx, false);
         }
       }
     }
   });
 
-  // Vim Keybinding Engine + Ctrl+W Split Window Prefix
+  // Vim Keybinding Engine (Capture phase on window so Alt+Arrows & Ctrl+Alt/AltGraph shortcuts ALWAYS fire!)
   let pendingPrefix = '';
   let countPrefix = '';
   let prefixTimer = null;
@@ -852,349 +1014,489 @@
     if (pathAttr) loadDocumentInPane(focusedPaneIdx, pathAttr, { pushState: focusedPaneIdx === 0 });
   }
 
-  document.addEventListener('keydown', async (e) => {
-    // Ctrl + Alt + R (Split Right / vertical) & Ctrl + Alt + D (Split Down / horizontal)
-    // Placed before input guard & uses e.code so AltGr / Spanish keyboards and focused inputs always work!
-    if (e.ctrlKey && e.altKey && !e.metaKey) {
-      if (e.code === 'KeyR' || e.key.toLowerCase() === 'r') {
+  window.addEventListener(
+    'keydown',
+    async (e) => {
+      const inInput = Boolean(e.target?.matches?.('input, textarea, select'));
+      const isAltGraph = Boolean(e.getModifierState && e.getModifierState('AltGraph'));
+      const isCtrlAlt = (e.ctrlKey && e.altKey && !e.metaKey) || (!inInput && isAltGraph && !e.metaKey);
+
+      // 1. Ctrl + Alt + R (Split Right) & Ctrl + Alt + D (Split Down)
+      // Handles Windows Spanish/LATAM keyboards where Ctrl+Alt sends AltGraph!
+      if (isCtrlAlt) {
+        if (e.code === 'KeyR' || e.key?.toLowerCase() === 'r') {
+          e.preventDefault();
+          e.stopPropagation();
+          if (focusZone === 'files' && treeCursorEl?.classList.contains('mdv-file-item')) {
+            await activateTreeCursorItem({ openInSplit: true });
+          } else {
+            await openSplit('vertical');
+          }
+          return;
+        }
+        if (e.code === 'KeyD' || e.key?.toLowerCase() === 'd') {
+          e.preventDefault();
+          e.stopPropagation();
+          if (focusZone === 'files' && treeCursorEl?.classList.contains('mdv-file-item')) {
+            const p = treeCursorEl.getAttribute('data-file-path');
+            await openSplit('horizontal', p || null);
+          } else {
+            await openSplit('horizontal');
+          }
+          return;
+        }
+      }
+
+      // 2. Alt + Arrow keys: switch focus cleanly between File Browser <-> Open Document Panes
+      if (
+        e.altKey &&
+        !e.ctrlKey &&
+        !e.metaKey &&
+        ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)
+      ) {
         e.preventDefault();
         e.stopPropagation();
-        await openSplit('vertical');
+        resetVimPending();
+        handleAltArrowNavigation(e.key);
         return;
       }
-      if (e.code === 'KeyD' || e.key.toLowerCase() === 'd') {
-        e.preventDefault();
-        e.stopPropagation();
-        await openSplit('horizontal');
-        return;
-      }
-    }
 
-    if (e.target.matches('input, textarea, select')) return;
+      if (inInput) return;
 
-    const pane = activePane();
-    const scroller = pane.scroller;
+      const pane = activePane();
+      const scroller = pane.scroller;
 
-    if (e.key === 'Escape') {
-      resetVimPending();
-      if (modalEl && !modalEl.hidden) {
-        modalEl.hidden = true;
-        return;
-      }
-      if (searchBarEl && !searchBarEl.hidden) {
-        closeSearchBar(true);
-        return;
-      }
-      if (searchHits.length > 0) {
-        clearSearchHighlights();
-        showToast('Búsqueda limpia');
-      }
-      return;
-    }
-
-    // Handle pending <Leader> (Space) or ^W Split Window commands!
-    if (pendingPrefix === '␣' || pendingPrefix === '^W') {
-      resetVimPending();
-      e.preventDefault();
-      const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
-      if (k === 'v' || k === '|') await openSplit('vertical');
-      else if (k === 's' || k === '-') await openSplit('horizontal');
-      else if (k === 'w' || k === ' ') {
-        if (splitMode !== 'none') focusPane(focusedPaneIdx === 0 ? 1 : 0);
-      } else if (k === 'h' || k === 'arrowleft') {
-        if (splitMode !== 'none') focusPane(0);
-      } else if (k === 'l' || k === 'arrowright') {
-        if (splitMode !== 'none') focusPane(1);
-      } else if (k === 'k' || k === 'arrowup') {
-        if (splitMode !== 'none') focusPane(0);
-      } else if (k === 'j' || k === 'arrowdown') {
-        if (splitMode !== 'none') focusPane(1);
-      } else if (k === 'x' || k === 'r') {
-        swapPanes();
-      } else if (k === '=') {
-        applySplitSizes(0.5);
-        showToast('Paneles 50 / 50');
-      } else if (k === 'y') {
-        toggleSyncScroll();
-      } else if (k === 'q' || k === 'c') {
-        closePane(focusedPaneIdx);
-      } else if (k === 'o') {
-        if (splitMode !== 'none') closePane(focusedPaneIdx === 0 ? 1 : 0);
-      }
-      return;
-    }
-
-    // Ctrl shortcuts
-    if (e.ctrlKey && !e.altKey && !e.metaKey) {
-      if (e.key === 'w' || e.key === 'W') {
-        e.preventDefault();
-        setPending('^W', '');
-        return;
-      }
-      if (e.key === 'p') {
-        e.preventDefault();
-        if (document.body.classList.contains('hide-files')) toggleFilesPanel();
-        fileFilterEl?.focus();
-        fileFilterEl?.select();
-        return;
-      }
-      if (e.key === 'd') {
-        e.preventDefault();
-        scroller.scrollBy({ top: scroller.clientHeight * 0.5, behavior: 'auto' });
-        return;
-      }
-      if (e.key === 'u') {
-        e.preventDefault();
-        scroller.scrollBy({ top: -scroller.clientHeight * 0.5, behavior: 'auto' });
-        return;
-      }
-      if (e.key === 'f') {
-        e.preventDefault();
-        scroller.scrollBy({ top: scroller.clientHeight * 0.88, behavior: 'auto' });
-        return;
-      }
-      if (e.key === 'b') {
-        e.preventDefault();
-        scroller.scrollBy({ top: -scroller.clientHeight * 0.88, behavior: 'auto' });
-        return;
-      }
-      return;
-    }
-
-    if (e.metaKey || e.altKey) return;
-
-    // Tab cycles active split pane cleanly
-    if (e.key === 'Tab' && splitMode !== 'none') {
-      e.preventDefault();
-      focusPane(focusedPaneIdx === 0 ? 1 : 0);
-      return;
-    }
-
-    if (/^[1-9]$/.test(e.key) || (e.key === '0' && countPrefix.length > 0)) {
-      if (!pendingPrefix) {
-        setPending('', countPrefix + e.key);
-        return;
-      }
-    }
-
-    const count = Math.max(1, Number(countPrefix || 1));
-
-    if (pendingPrefix === 'g') {
-      resetVimPending();
-      if (e.key === 'g') {
-        e.preventDefault();
-        scroller.scrollTo({ top: 0, behavior: 'smooth' });
-      }
-      return;
-    }
-
-    if (pendingPrefix === ']') {
-      resetVimPending();
-      if (e.key === ']') {
-        e.preventDefault();
-        jumpSection(1);
-      } else if (e.key === 'f') {
-        e.preventDefault();
-        switchSiblingFile(1);
-      }
-      return;
-    }
-
-    if (pendingPrefix === '[') {
-      resetVimPending();
-      if (e.key === '[') {
-        e.preventDefault();
-        jumpSection(-1);
-      } else if (e.key === 'f') {
-        e.preventDefault();
-        switchSiblingFile(-1);
-      }
-      return;
-    }
-
-    if (pendingPrefix === 'z') {
-      resetVimPending();
-      if (e.key === 'z') {
-        e.preventDefault();
-        const scrollerTop = scroller.getBoundingClientRect().top;
-        const activeH = pane.headings.find((h) => h.getBoundingClientRect().top >= scrollerTop - 20) || pane.headings[0];
-        activeH?.scrollIntoView({ block: 'center', behavior: 'smooth' });
-      } else if (e.key === 'R' || e.key === 'o') {
-        e.preventDefault();
-        pane.article.querySelectorAll('details').forEach((d) => (d.open = true));
-        showToast('Desplegables abiertos');
-      } else if (e.key === 'M' || e.key === 'c') {
-        e.preventDefault();
-        pane.article.querySelectorAll('details').forEach((d) => (d.open = false));
-        showToast('Desplegables cerrados');
-      } else if (e.key === 'a') {
-        e.preventDefault();
-        const all = Array.from(pane.article.querySelectorAll('details'));
-        const shouldOpen = all.some((d) => !d.open);
-        all.forEach((d) => (d.open = shouldOpen));
-      }
-      return;
-    }
-
-    if (pendingPrefix === 'y') {
-      resetVimPending();
-      if (e.key === 'y') {
-        e.preventDefault();
-        await navigator.clipboard.writeText(pane.filePath);
-        showToast('Ruta copiada');
-      } else if (e.key === 'c') {
-        e.preventDefault();
-        const scrollerRect = scroller.getBoundingClientRect();
-        const cards = Array.from(pane.article.querySelectorAll('.mdv-code-card pre code'));
-        const visible = cards.find((c) => {
-          const r = c.getBoundingClientRect();
-          return r.bottom > scrollerRect.top + 10 && r.top < scrollerRect.bottom;
-        });
-        if (visible) {
-          await navigator.clipboard.writeText(visible.textContent || '');
-          showToast('Código copiado');
+      if (e.key === 'Escape') {
+        resetVimPending();
+        if (modalEl && !modalEl.hidden) {
+          modalEl.hidden = true;
+          return;
         }
-      }
-      return;
-    }
-
-    if (['g', '[', ']', 'z', 'y'].includes(e.key)) {
-      e.preventDefault();
-      setPending(e.key, countPrefix);
-      return;
-    }
-    if (e.key === ' ') {
-      e.preventDefault();
-      setPending('␣', '');
-      return;
-    }
-
-    resetVimPending();
-
-    switch (e.key) {
-      case 'j':
-        e.preventDefault();
-        scroller.scrollBy({ top: 72 * count, behavior: 'auto' });
-        break;
-      case 'k':
-        e.preventDefault();
-        scroller.scrollBy({ top: -72 * count, behavior: 'auto' });
-        break;
-      case 'd':
-        e.preventDefault();
-        scroller.scrollBy({ top: scroller.clientHeight * 0.5 * count, behavior: 'auto' });
-        break;
-      case 'u':
-        e.preventDefault();
-        scroller.scrollBy({ top: -scroller.clientHeight * 0.5 * count, behavior: 'auto' });
-        break;
-      case 'f':
-        e.preventDefault();
-        scroller.scrollBy({ top: scroller.clientHeight * 0.88 * count, behavior: 'auto' });
-        break;
-      case 'b':
-        e.preventDefault();
-        scroller.scrollBy({ top: -scroller.clientHeight * 0.88 * count, behavior: 'auto' });
-        break;
-      case 'G':
-        e.preventDefault();
-        scroller.scrollTo({ top: scroller.scrollHeight, behavior: 'smooth' });
-        break;
-      case '}':
-        e.preventDefault();
-        jumpSection(1);
-        break;
-      case '{':
-        e.preventDefault();
-        jumpSection(-1);
-        break;
-      case 'V':
-        e.preventDefault();
-        await openSplit('vertical');
-        break;
-      case 'S':
-        e.preventDefault();
-        await openSplit('horizontal');
-        break;
-      case 'h': {
-        const car = findVisibleCarouselInPane(pane);
-        if (car) {
-          e.preventDefault();
-          car.prev();
+        if (searchBarEl && !searchBarEl.hidden) {
+          closeSearchBar(true);
+          return;
         }
-        break;
-      }
-      case 'l': {
-        const car = findVisibleCarouselInPane(pane);
-        if (car) {
-          e.preventDefault();
-          car.next();
+        if (focusZone === 'files') {
+          setFocusZone('pane', focusedPaneIdx);
+          return;
         }
-        break;
-      }
-      case '/':
-        e.preventDefault();
-        openSearchBar();
-        break;
-      case 'n':
         if (searchHits.length > 0) {
+          clearSearchHighlights();
+          showToast('Búsqueda limpia');
+        }
+        return;
+      }
+
+      // Handle pending <Leader> (Space) or ^W Split Window commands!
+      if (pendingPrefix === '␣' || pendingPrefix === '^W') {
+        resetVimPending();
+        e.preventDefault();
+        const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+        if (k === 'v' || k === '|' || k === 'r') await openSplit('vertical');
+        else if (k === 's' || k === '-' || k === 'd') await openSplit('horizontal');
+        else if (k === 'w' || k === ' ') {
+          if (splitMode !== 'none') setFocusZone('pane', focusedPaneIdx === 0 ? 1 : 0);
+        } else if (k === 'h' || k === 'arrowleft') {
+          handleAltArrowNavigation('ArrowLeft');
+        } else if (k === 'l' || k === 'arrowright') {
+          handleAltArrowNavigation('ArrowRight');
+        } else if (k === 'k' || k === 'arrowup') {
+          if (splitMode === 'horizontal') setFocusZone('pane', 0);
+        } else if (k === 'j' || k === 'arrowdown') {
+          if (splitMode === 'horizontal') setFocusZone('pane', 1);
+        } else if (k === 'x') {
+          swapPanes();
+        } else if (k === '=') {
+          applySplitSizes(0.5);
+          showToast('Paneles 50 / 50');
+        } else if (k === 'y') {
+          toggleSyncScroll();
+        } else if (k === 'q' || k === 'c') {
+          closePane(focusedPaneIdx);
+        } else if (k === 'o') {
+          if (splitMode !== 'none') closePane(focusedPaneIdx === 0 ? 1 : 0);
+        }
+        return;
+      }
+
+      // Ctrl shortcuts
+      if (e.ctrlKey && !e.altKey && !e.metaKey) {
+        if (e.key === 'p') {
           e.preventDefault();
-          focusSearchHit(activeHitIdx + 1);
+          if (document.body.classList.contains('hide-files')) toggleFilesPanel();
+          fileFilterEl?.focus();
+          fileFilterEl?.select();
+          return;
         }
-        break;
-      case 'N':
-        if (searchHits.length > 0) {
+        if (focusZone === 'pane') {
+          if (e.key === 'd') {
+            e.preventDefault();
+            scroller.scrollBy({ top: scroller.clientHeight * 0.5, behavior: 'auto' });
+            return;
+          }
+          if (e.key === 'u') {
+            e.preventDefault();
+            scroller.scrollBy({ top: -scroller.clientHeight * 0.5, behavior: 'auto' });
+            return;
+          }
+          if (e.key === 'f') {
+            e.preventDefault();
+            scroller.scrollBy({ top: scroller.clientHeight * 0.88, behavior: 'auto' });
+            return;
+          }
+          if (e.key === 'b') {
+            e.preventDefault();
+            scroller.scrollBy({ top: -scroller.clientHeight * 0.88, behavior: 'auto' });
+            return;
+          }
+        }
+        return;
+      }
+
+      if (e.metaKey || e.altKey) return;
+
+      // Numeric count prefix (1-9, or 0 after digits)
+      if (/^[1-9]$/.test(e.key) || (e.key === '0' && countPrefix.length > 0)) {
+        if (!pendingPrefix) {
+          setPending('', countPrefix + e.key);
+          return;
+        }
+      }
+
+      const count = Math.max(1, Number(countPrefix || 1));
+
+      // =========================================================
+      // MODE A: FILE BROWSER VIM NAVIGATION (focusZone === 'files')
+      // =========================================================
+      if (focusZone === 'files') {
+        if (pendingPrefix === 'g') {
+          resetVimPending();
+          if (e.key === 'g') {
+            e.preventDefault();
+            const items = getNavigableTreeItems();
+            if (items.length) setTreeCursor(items[0]);
+          }
+          return;
+        }
+        if (e.key === 'g') {
           e.preventDefault();
-          focusSearchHit(activeHitIdx - 1);
+          setPending('g', countPrefix);
+          return;
         }
-        break;
-      case 't':
-        e.preventDefault();
-        toggleTocPanel();
-        break;
-      case 'e':
-        e.preventDefault();
-        toggleFilesPanel();
-        break;
-      case 'w':
-        e.preventDefault();
-        toggleWideMode();
-        break;
-      case 'c':
-        e.preventDefault();
-        cycleTheme();
-        break;
-      case '+':
-      case '=':
-        e.preventDefault();
-        applyZoom(zoomPercent + 10);
-        break;
-      case '-':
-        e.preventDefault();
-        applyZoom(zoomPercent - 10);
-        break;
-      case '0':
-        e.preventDefault();
-        applyZoom(100);
-        break;
-      case 'r':
-        e.preventDefault();
-        if (pane.filePath) {
-          await loadDocumentInPane(pane.idx, pane.filePath, { preserveScroll: true, isLiveReload: true });
-          showToast('Recargado');
+        if (e.key === ' ') {
+          e.preventDefault();
+          setPending('␣', '');
+          return;
         }
-        break;
-      case '?':
+
+        resetVimPending();
+        switch (e.key) {
+          case 'j':
+          case 'ArrowDown':
+            e.preventDefault();
+            moveTreeCursor(count);
+            return;
+          case 'k':
+          case 'ArrowUp':
+            e.preventDefault();
+            moveTreeCursor(-count);
+            return;
+          case 'G': {
+            e.preventDefault();
+            const items = getNavigableTreeItems();
+            if (items.length) setTreeCursor(items[items.length - 1]);
+            return;
+          }
+          case 'o':
+          case 'Enter':
+            e.preventDefault();
+            await activateTreeCursorItem({ stayInFiles: false });
+            return;
+          case 'O':
+            e.preventDefault();
+            await activateTreeCursorItem({ stayInFiles: true });
+            return;
+          case 'v':
+            e.preventDefault();
+            await activateTreeCursorItem({ openInSplit: true });
+            return;
+          case 'l':
+          case 'ArrowRight':
+            e.preventDefault();
+            if (treeCursorEl?.classList.contains('mdv-folder-summary')) {
+              const det = treeCursorEl.closest('details.mdv-folder-details');
+              if (det && !det.open) det.open = true;
+              else moveTreeCursor(1);
+            } else {
+              await activateTreeCursorItem({ stayInFiles: false });
+            }
+            return;
+          case 'h':
+          case 'ArrowLeft':
+            e.preventDefault();
+            if (treeCursorEl?.classList.contains('mdv-folder-summary')) {
+              const det = treeCursorEl.closest('details.mdv-folder-details');
+              if (det && det.open) {
+                det.open = false;
+                return;
+              }
+            }
+            {
+              const parentDet = treeCursorEl?.parentElement?.closest('details.mdv-folder-details');
+              const parentSum = parentDet?.querySelector(':scope > summary.mdv-folder-summary');
+              if (parentSum) setTreeCursor(parentSum);
+            }
+            return;
+          case '/':
+          case 'f':
+            e.preventDefault();
+            fileFilterEl?.focus();
+            fileFilterEl?.select();
+            return;
+          case 'e':
+            e.preventDefault();
+            toggleFilesPanel();
+            return;
+          case '?':
+            e.preventDefault();
+            toggleHelpModal();
+            return;
+          case 'q':
+            e.preventDefault();
+            setFocusZone('pane', focusedPaneIdx);
+            return;
+        }
+        return;
+      }
+
+      // =========================================================
+      // MODE B: DOCUMENT PANE VIM NAVIGATION (focusZone === 'pane')
+      // =========================================================
+      if (e.key === 'Tab' && splitMode !== 'none') {
         e.preventDefault();
-        toggleHelpModal();
-        break;
-      case 'q':
+        setFocusZone('pane', focusedPaneIdx === 0 ? 1 : 0);
+        return;
+      }
+
+      if (pendingPrefix === 'g') {
+        resetVimPending();
+        if (e.key === 'g') {
+          e.preventDefault();
+          scroller.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+        return;
+      }
+
+      if (pendingPrefix === ']') {
+        resetVimPending();
+        if (e.key === ']') {
+          e.preventDefault();
+          jumpSection(1);
+        } else if (e.key === 'f') {
+          e.preventDefault();
+          switchSiblingFile(1);
+        }
+        return;
+      }
+
+      if (pendingPrefix === '[') {
+        resetVimPending();
+        if (e.key === '[') {
+          e.preventDefault();
+          jumpSection(-1);
+        } else if (e.key === 'f') {
+          e.preventDefault();
+          switchSiblingFile(-1);
+        }
+        return;
+      }
+
+      if (pendingPrefix === 'z') {
+        resetVimPending();
+        if (e.key === 'z') {
+          e.preventDefault();
+          const scrollerTop = scroller.getBoundingClientRect().top;
+          const activeH =
+            pane.headings.find((h) => h.getBoundingClientRect().top >= scrollerTop - 20) || pane.headings[0];
+          activeH?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        } else if (e.key === 'R' || e.key === 'o') {
+          e.preventDefault();
+          pane.article.querySelectorAll('details').forEach((d) => (d.open = true));
+          showToast('Desplegables abiertos');
+        } else if (e.key === 'M' || e.key === 'c') {
+          e.preventDefault();
+          pane.article.querySelectorAll('details').forEach((d) => (d.open = false));
+          showToast('Desplegables cerrados');
+        } else if (e.key === 'a') {
+          e.preventDefault();
+          const all = Array.from(pane.article.querySelectorAll('details'));
+          const shouldOpen = all.some((d) => !d.open);
+          all.forEach((d) => (d.open = shouldOpen));
+        }
+        return;
+      }
+
+      if (pendingPrefix === 'y') {
+        resetVimPending();
+        if (e.key === 'y') {
+          e.preventDefault();
+          await navigator.clipboard.writeText(pane.filePath);
+          showToast('Ruta copiada');
+        } else if (e.key === 'c') {
+          e.preventDefault();
+          const scrollerRect = scroller.getBoundingClientRect();
+          const cards = Array.from(pane.article.querySelectorAll('.mdv-code-card pre code'));
+          const visible = cards.find((c) => {
+            const r = c.getBoundingClientRect();
+            return r.bottom > scrollerRect.top + 10 && r.top < scrollerRect.bottom;
+          });
+          if (visible) {
+            await navigator.clipboard.writeText(visible.textContent || '');
+            showToast('Código copiado');
+          }
+        }
+        return;
+      }
+
+      if (['g', '[', ']', 'z', 'y'].includes(e.key)) {
         e.preventDefault();
-        if (splitMode !== 'none') closePane(focusedPaneIdx);
-        else window.close();
-        break;
-    }
-  });
+        setPending(e.key, countPrefix);
+        return;
+      }
+      if (e.key === ' ') {
+        e.preventDefault();
+        setPending('␣', '');
+        return;
+      }
+
+      resetVimPending();
+
+      switch (e.key) {
+        case 'j':
+          e.preventDefault();
+          scroller.scrollBy({ top: 72 * count, behavior: 'auto' });
+          break;
+        case 'k':
+          e.preventDefault();
+          scroller.scrollBy({ top: -72 * count, behavior: 'auto' });
+          break;
+        case 'd':
+          e.preventDefault();
+          scroller.scrollBy({ top: scroller.clientHeight * 0.5 * count, behavior: 'auto' });
+          break;
+        case 'u':
+          e.preventDefault();
+          scroller.scrollBy({ top: -scroller.clientHeight * 0.5 * count, behavior: 'auto' });
+          break;
+        case 'f':
+          e.preventDefault();
+          scroller.scrollBy({ top: scroller.clientHeight * 0.88 * count, behavior: 'auto' });
+          break;
+        case 'b':
+          e.preventDefault();
+          scroller.scrollBy({ top: -scroller.clientHeight * 0.88 * count, behavior: 'auto' });
+          break;
+        case 'G':
+          e.preventDefault();
+          scroller.scrollTo({ top: scroller.scrollHeight, behavior: 'smooth' });
+          break;
+        case '}':
+          e.preventDefault();
+          jumpSection(1);
+          break;
+        case '{':
+          e.preventDefault();
+          jumpSection(-1);
+          break;
+        case 'V':
+          e.preventDefault();
+          await openSplit('vertical');
+          break;
+        case 'S':
+          e.preventDefault();
+          await openSplit('horizontal');
+          break;
+        case 'h': {
+          const car = findVisibleCarouselInPane(pane);
+          if (car) {
+            e.preventDefault();
+            car.prev();
+          }
+          break;
+        }
+        case 'l': {
+          const car = findVisibleCarouselInPane(pane);
+          if (car) {
+            e.preventDefault();
+            car.next();
+          }
+          break;
+        }
+        case '/':
+          e.preventDefault();
+          openSearchBar();
+          break;
+        case 'n':
+          if (searchHits.length > 0) {
+            e.preventDefault();
+            focusSearchHit(activeHitIdx + 1);
+          }
+          break;
+        case 'N':
+          if (searchHits.length > 0) {
+            e.preventDefault();
+            focusSearchHit(activeHitIdx - 1);
+          }
+          break;
+        case 't':
+          e.preventDefault();
+          toggleTocPanel();
+          break;
+        case 'e':
+          e.preventDefault();
+          toggleFilesPanel();
+          break;
+        case 'w':
+          e.preventDefault();
+          toggleWideMode();
+          break;
+        case 'c':
+          e.preventDefault();
+          cycleTheme();
+          break;
+        case '+':
+        case '=':
+          e.preventDefault();
+          applyZoom(zoomPercent + 10);
+          break;
+        case '-':
+          e.preventDefault();
+          applyZoom(zoomPercent - 10);
+          break;
+        case '0':
+          e.preventDefault();
+          applyZoom(100);
+          break;
+        case 'r':
+          e.preventDefault();
+          if (pane.filePath) {
+            await loadDocumentInPane(pane.idx, pane.filePath, { preserveScroll: true, isLiveReload: true });
+            showToast('Recargado');
+          }
+          break;
+        case '?':
+          e.preventDefault();
+          toggleHelpModal();
+          break;
+        case 'q':
+          e.preventDefault();
+          if (splitMode !== 'none') closePane(focusedPaneIdx);
+          else window.close();
+          break;
+      }
+    },
+    { capture: true }
+  );
 
   // Per-Pane Scroll-Spy + Sync Scroll
   function refreshHeadings(pane) {
@@ -1206,7 +1508,6 @@
     const scrollTop = scroller.scrollTop;
     const maxScroll = scroller.scrollHeight - scroller.clientHeight;
 
-    // Optional Sync Scroll across split panes
     if (syncScroll && splitMode !== 'none' && !isSyncingScroll && maxScroll > 0) {
       isSyncingScroll = true;
       const other = panes[pane.idx === 0 ? 1 : 0];
@@ -1219,7 +1520,7 @@
       });
     }
 
-    if (pane.idx !== focusedPaneIdx) return;
+    if (pane.idx !== focusedPaneIdx || focusZone === 'files') return;
 
     if (vimPosEl) {
       if (maxScroll <= 4) vimPosEl.textContent = 'ALL';
@@ -1272,7 +1573,7 @@
       if (isCur) activeLi = li;
     });
 
-    if (activeLi) {
+    if (activeLi && focusZone !== 'files') {
       let parent = activeLi.parentElement;
       while (parent && parent !== fileListEl) {
         if (parent.matches('details.mdv-folder-details')) parent.open = true;
@@ -1372,7 +1673,6 @@
     if (f) loadDocumentInPane(0, f, { pushState: false, hash: location.hash });
   });
 
-  // Live-reload SSE connection (updates whichever pane(s) show the edited file, or refreshes tree!)
   function connectEvents() {
     const es = new EventSource('/events');
     es.onopen = () => liveDotEl?.classList.remove('is-disconnected');
@@ -1397,7 +1697,7 @@
     });
   }
 
-  // Boot Pane 0 (and optional CLI initial Split Pane 1)
+  // Boot
   if (initCfg.maximized) {
     try {
       if (window.outerWidth < screen.availWidth - 24 || window.outerHeight < screen.availHeight - 24) {

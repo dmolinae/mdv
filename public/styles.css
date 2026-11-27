@@ -1501,3 +1501,31 @@ html, body {
 *::-webkit-scrollbar-thumb:hover {
   background: var(--accent);
 }
+
+/* Active Zone Focus & Vim File Tree Cursor */
+.mdv-sidebar-files {
+  border-top: 2px solid transparent;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.mdv-sidebar-files.is-zone-focused {
+  border-top-color: var(--accent);
+  background: color-mix(in srgb, var(--bg-surface) 82%, var(--bg-app));
+}
+
+.mdv-sidebar-files.is-zone-focused .mdv-explorer-header .mdv-panel-title {
+  color: var(--accent);
+}
+
+.mdv-pane.is-zone-focused .mdv-pane-bar {
+  border-top-color: var(--accent);
+}
+
+/* Tree keyboard cursor highlight (j/k navigation) */
+.mdv-file-item.is-tree-cursor > a,
+.mdv-folder-summary.is-tree-cursor {
+  outline: 1.5px solid var(--accent);
+  outline-offset: -1.5px;
+  background: var(--bg-hover);
+  color: var(--text-heading);
+}

@@ -89,7 +89,7 @@ const MIME_TYPES = {
 };
 
 function printHelp() {
-  console.log(`mdv 1.3.0 — Visor moderno de Markdown con Split Views, explorador recursivo, Carousel, Mermaid, Vim y Live-Reload
+  console.log(`mdv 1.4.0 — Visor moderno de Markdown con Split Views, explorador recursivo, Carousel, Mermaid, Vim y Live-Reload
 
 Uso:
   mdv                              Abre la carpeta actual y explora todos los .md en subcarpetas
@@ -139,7 +139,7 @@ function parseArgs(argv) {
       process.exit(0);
     }
     if (arg === '-V' || arg === '--version') {
-      console.log('mdv 1.3.2');
+      console.log('mdv 1.4.0');
       process.exit(0);
     }
     if (arg === '--update') {
@@ -455,7 +455,7 @@ function buildHtmlShell({
   <title>${escapeHtmlAttr(title || path.basename(filePath))} — mdv</title>
   <link rel="stylesheet" href="/vendor/overlayscrollbars/overlayscrollbars.min.css" />
   <link rel="stylesheet" href="/vendor/katex/katex.min.css" />
-  <link rel="stylesheet" href="/assets/styles.css" />
+  <link rel="stylesheet" href="/assets/styles.css?v=1.4.0" />
 </head>
 <body class="${hideFilesClass}">
   <header class="mdv-topbar">
@@ -606,7 +606,7 @@ function buildHtmlShell({
   </script>
   <script src="/vendor/overlayscrollbars/overlayscrollbars.browser.es6.min.js"></script>
   <script src="/vendor/mermaid/mermaid.min.js"></script>
-  <script src="/assets/app.js"></script>
+  <script src="/assets/app.js?v=1.4.0"></script>
 </body>
 </html>`;
 }
@@ -751,7 +751,7 @@ async function main() {
     const ext = path.extname(fullPath).toLowerCase();
     res.writeHead(200, {
       'Content-Type': MIME_TYPES[ext] || 'application/octet-stream',
-      'Cache-Control': 'no-cache'
+      'Cache-Control': 'no-store'
     });
     fs.createReadStream(fullPath).pipe(res);
   }
