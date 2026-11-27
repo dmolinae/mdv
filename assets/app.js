@@ -159,6 +159,21 @@
   };
 
   function initHorizontalBlockScrollbars(scope) {
+    if (window.hljs && scope) {
+      scope.querySelectorAll('.mdv-code-card pre code:not([data-highlighted])').forEach((el) => {
+        try { window.hljs.highlightElement(el); } catch {}
+      });
+    }
+    if (window.katex && scope) {
+      scope.querySelectorAll('[data-math]:not([data-math-rendered])').forEach((el) => {
+        try {
+          const expr = el.getAttribute('data-math') || '';
+          const displayMode = el.classList.contains('mdv-math-block');
+          window.katex.render(expr, el, { displayMode, throwOnError: false });
+          el.setAttribute('data-math-rendered', '1');
+        } catch {}
+      });
+    }
     if (!OverlayScrollbars || !scope) return;
     scope
       .querySelectorAll('.mdv-code-card pre, .mdv-table-wrap, .mdv-mermaid-stage, .mdv-math-block')
@@ -460,7 +475,7 @@
   function resolvePreferredCwd() {
     const mp = activeMdPane();
     if (mp?.filePath) {
-      const idx = mp.filePath.lastIndexOf('/');
+      const idx = Math.max(mp.filePath.lastIndexOf('/'), mp.filePath.lastIndexOf('\\'));
       if (idx > 0) return mp.filePath.slice(0, idx);
     }
     return initCfg.workspaceDir || '';
@@ -469,7 +484,7 @@
   function createTerminalPane({ cwd = '' } = {}) {
     const id = `term-${nextNodeSeq++}`;
     const targetCwd = cwd || resolvePreferredCwd();
-    const shortDir = targetCwd.split('/').filter(Boolean).pop() || 'wsl';
+    const shortDir = targetCwd.split(/[/\\]/).filter(Boolean).pop() || 'wsl';
     const section = document.createElement('section');
     section.className = 'mdv-pane';
     section.setAttribute('data-pane-id', id);

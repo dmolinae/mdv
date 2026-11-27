@@ -1,36 +1,34 @@
-# mdv — Modern Markdown Viewer para WSL2 y Linux
+# mdv — Modern Markdown & WSL Terminal Workspace (Rust)
 
-Visor ligero de Markdown lanzado desde la terminal que abre una **ventana limpia nativa en Windows (`--app`)**, diseñado especialmente para **WSL2** (evitando los bordes toscos y el mal escalado de WSLg) con soporte completo para componentes extendidos, navegación estilo **Vim** y **Live-Reload**.
-
-## Características principales
-
-- **Ventana limpia nativa (`--app`) maximizada por defecto:** utiliza Chrome/Edge nativo de Windows con un perfil aislado ligero para abrirse siempre maximizada al instante (sin pestañas ni barra de URLs y con renderizado tipográfico DirectWrite nítido; usa `--windowed` si prefieres ventana flotante).
-- **Componentes extendidos:**
-  - **Carruseles interactivos (`carousel`):** bloques ````carousel` separados con `<!-- slide -->` o `<!-- slide: Título -->`, navegables con botones, puntos, arrastre o teclas `h` / `l` (permitiendo código, tablas, alertas y Mermaid dentro de cada vista).
-  - **Diagramas Mermaid vectoriales:** SVG adaptativos al tema con vista de código fuente y modo **Ampliar**.
-  - **Alertas GitHub / Antigravity:** `[!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]` y `[!CAUTION]`.
-  - **Fórmulas matemáticas (KaTeX):** soporte en línea (`$...$`) y en bloque (`$$...$$`).
-  - **Código con resaltado (`highlight.js`):** botón de copiado rápido y soporte de bloques `<details>` desplegables.
-- **Explorador recursivo de carpetas:** ejecuta `mdv` en cualquier directorio para listar en un árbol colapsable todos los `.md` de la carpeta actual y subcarpetas (con filtro rápido `Ctrl+P`).
-- **Layout de 4 columnas (`Navegador de MD | Visor de MD | Índice | Terminales WSL`):** separa limpiamente tu zona de lectura/documentación a la izquierda de tu **zona de terminales reales de WSL** a la derecha (con 1 terminal abierta siempre por defecto en `Iosevka Nerd Font`, divisor arrastrable y splits infinitos independientes en cada zona).
-- **Mappings estilo Vim + Índice (TOC):** navegación fluida con teclado (`Alt+h/j/k/l` entre archivos, documentos y terminales, `j`/`k`, `5j`, `d`/`u`, `gg`/`G`, `]]`/`[[`, `/` + `n`/`N`, `?`, `q`) y tabla de contenidos lateral con *scroll-spy*.
-- **Live-Reload híbrido y apagado automático:** detecta cambios al instante (incluso guardados atómicos de Vim/Neovim y rutas `/mnt/c/...`), devuelve el prompt de la terminal enseguida y apaga su servidor local automáticamente al cerrar la ventana.
+Visor y entorno de documentación ultraligero escrito **100% en Rust** (un único ejecutable nativo sin dependencias externas) para **Windows** y **WSL2 / Linux**, con interfaz maximizada limpia (`--app`), **Carruseles interactivos**, **Mermaid**, **KaTeX**, navegación estilo **Vim** y una **Zona de Terminales reales de WSL** con splits infinitos.
 
 ---
 
-## Instalación rápida en WSL2 / Linux
+## Instalación en Windows
 
-Requisitos: `git` y `Node.js >= 18`.
+### Opción 1: Instalador gráfico `.exe` (Recomendado)
+Descarga y ejecuta **[`mdv-setup-x64.exe`](https://github.com/dmolinae/mdv/releases/latest/download/mdv-setup-x64.exe)** desde [GitHub Releases](https://github.com/dmolinae/mdv/releases/latest):
+- Instala `mdv.exe` sin requerir permisos de administrador (`%LOCALAPPDATA%\Programs\mdv`).
+- Lo añade automáticamente a tu `PATH` de Windows (listo para PowerShell, CMD y Windows Terminal).
+- Añade **"Abrir en mdv"** al clic derecho sobre carpetas en el Explorador de Windows y asociación opcional de archivos `.md`.
+- Cuando se ejecuta en Windows, abre automáticamente tu terminal **WSL** (con `Iosevka Nerd Font`) en el panel derecho, o PowerShell si WSL no está instalado.
 
-### Opción 1: Instalador de una línea (recomendado)
+### Opción 2: Una línea en PowerShell
+```powershell
+irm https://raw.githubusercontent.com/dmolinae/mdv/main/install.ps1 | iex
+```
+
+---
+
+## Instalación en WSL2 / Linux
+
+Descarga el binario nativo precompilado (cero Node.js, cero Python):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/dmolinae/mdv/main/install.sh | bash
 ```
 
-Esto clona `mdv` en `~/.local/share/mdv`, instala sus dependencias locales (funciona 100% offline después de instalar) y enlaza el ejecutable en `~/.local/bin/mdv`.
-
-### Opción 2: Clonar manualmente para desarrollo
+O compílalo localmente desde código fuente con Cargo:
 
 ```bash
 git clone https://github.com/dmolinae/mdv.git ~/code/mdv
@@ -38,11 +36,22 @@ cd ~/code/mdv
 ./install.sh --local
 ```
 
-### Actualizar a la última versión
+Para actualizar a la última versión en Windows o WSL2:
 
 ```bash
 mdv --update
 ```
+
+---
+
+## Layout en 4 Zonas (Izquierda a Derecha)
+
+`Navegador de MD` **|** `Visor de MD (Splits infinitos)` **|** `Índice (TOC)` **|** `Zona de Terminales WSL (1 abierta por defecto + Splits infinitos)`
+
+- **Ventana limpia nativa (`--app`) maximizada por defecto:** renderizado DirectWrite nítido sin barras ni pestañas (usa `--windowed` para ventana flotante).
+- **Componentes extendidos:** carruseles ````carousel` + `<!-- slide -->`, diagramas **Mermaid** vectoriales con zoom, fórmulas **KaTeX** (`$...$` / `$$...$$`), alertas GitHub/Antigravity (`[!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]`, `[!CAUTION]`), bloques `<details>` y barras flotantes **OverlayScrollbars**.
+- **Terminales reales (`portable-pty` + `xterm.js`):** PTY nativo en Linux/WSL2 y ConPTY conectado a `wsl.exe` en Windows, configurado con `Iosevka Nerd Font`.
+- **Live-Reload híbrido y apagado automático:** detecta guardados atómicos de Vim/VS Code al instante y cierra el servidor local automáticamente al cerrar la ventana.
 
 ---
 
@@ -52,7 +61,7 @@ mdv --update
 # Abrir la carpeta actual y explorar todos los .md en subcarpetas
 mdv
 
-# Abrir un archivo o directorio específico
+# Abrir un archivo o carpeta específica
 mdv README.md
 mdv ./docs
 
@@ -62,59 +71,27 @@ mdv --hz README.md docs/arquitectura.md
 
 # Leer desde entrada estándar (pipe)
 cat notas.md | mdv
-
-# Elegir tema inicial o abrir en pestaña normal del navegador
-mdv -t catppuccin demo.md
-mdv -b demo.md
 ```
 
 ---
 
-## Atajos estilo Vim (`?` dentro de la app)
+## Atajos principales (`?` dentro de la app)
 
 | Acción | Atajo |
 | :--- | :--- |
-| Bajar / subir línea (acepta conteos ej. `5j`) | `j` / `k` |
-| Media página abajo / arriba | `d` / `u` (o `Ctrl+d` / `Ctrl+u`) |
-| Página completa abajo / arriba | `f` / `b` |
-| Inicio / final del documento | `gg` / `G` |
-| Siguiente / anterior encabezado | `]]` o `}` / `[[` o `{` |
-| Slide anterior / siguiente del carrusel visible | `h` / `l` |
-| Abrir / cerrar todos los `<details>` | `zR` / `zM` (`za` alterna) |
-| Buscar en documento / siguiente / anterior | `/` · `n` · `N` · `Esc` |
+| Mover foco entre **Archivos ↔ Visor MD ↔ Terminales WSL** | `Alt + h` / `Alt + j` / `Alt + k` / `Alt + l` |
+| Split Right / Split Down (contextual: divide MD o Terminal según foco) | `Ctrl+Alt+R` / `Ctrl+Alt+D` |
+| Forzar nuevo Split en Zona de Terminales WSL | `Alt+Shift+R` / `Alt+Shift+D` |
+| Cerrar panel MD o Terminal activa | `Alt+Shift+W` (o `q` en MD / `exit` en Terminal) |
+| En Navegador de MD: mover / abrir / preview sin salir / expandir | `j`/`k` · `o` o `Enter` · `O` · `l`/`h` |
 | Filtrar archivos `.md` del árbol izquierdo | `Ctrl+P` |
-| Cambiar foco entre Navegador de Archivos y Paneles | `Alt + h` / `Alt + j` / `Alt + k` / `Alt + l` |
-| En el Navegador de Archivos: mover / abrir / preview | `j`/`k` · `o` o `Enter` · `O` (sin salir del árbol) |
-| En el Navegador de Archivos: expandir / cerrar carpeta | `l` / `h` (y `v` abre en Split) |
-| Archivo `.md` anterior / siguiente | `[f` / `]f` |
-| Mostrar / ocultar Archivos o Índice (TOC) | `e` / `t` |
-| Alternar ancho de lectura / Rotar tema | `w` / `c` |
-| Zoom `+` / `-` / restablecer | `+` · `-` · `0` |
-| Copiar ruta actual / bloque de código visible | `yy` / `yc` |
-| Split Markdown Right / Down (infinitos) | `Ctrl+Alt+R` / `Ctrl+Alt+D` (o `Espacio v` / `Espacio s`) |
-| Split Terminal WSL Right / Down (infinitos) | `Alt+Shift+R` / `Alt+Shift+D` (o `Ctrl+Alt+T` / `Ctrl+Alt+B`) |
-| Cerrar cualquier panel activo (MD o Terminal) | `Alt+Shift+W` (o `q` en Markdown / `exit` en Terminal) |
-| Cambiar foco 2D (Archivos ↔ Markdown ↔ Terminales) | `Alt + h` / `Alt + j` / `Alt + k` / `Alt + l` |
-| Abrir archivo del árbol en el otro panel Split | `Alt + Clic` (o icono Split al pasar ratón) |
-| Intercambiar paneles / Igualar 50:50 / Sync scroll | `Espacio x` · `Espacio =` · `Espacio y` |
-| Cerrar panel Split activo / Dejar solo panel activo | `q` (o `Espacio q`) · `Espacio o` |
-| Forzar recarga / Mostrar ayuda / Cerrar ventana | `r` · `?` · `q` |
+| Bajar / subir en documento · Media página · Inicio / Final | `j`/`k` (`5j`) · `d`/`u` · `gg`/`G` |
+| Siguiente / anterior encabezado · Slide de carrusel | `]]` / `[[` · `h` / `l` |
+| Buscar en documento / siguiente / anterior | `/` · `n` · `N` · `Esc` |
+| Tamaño de letra `A+` / `A−` / `100%` | `+` · `-` · `0` |
+| Mostrar / ocultar Archivos o Índice · Ancho · Rotar tema | `e` / `t` · `w` · `c` |
 
 ---
-
-## Sintaxis de Carrusel
-
-````markdown
-````carousel
-<!-- slide: 1. Vista inicial -->
-Contenido en **Markdown**, tablas, imágenes o alertas.
-
-<!-- slide: 2. Código o Diagramas -->
-```ts
-console.log("Hola desde el slide 2");
-```
-````
-````
 
 ## Licencia
 
