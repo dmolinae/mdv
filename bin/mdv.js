@@ -91,7 +91,7 @@ const MIME_TYPES = {
 };
 
 function printHelp() {
-  console.log(`mdv 1.5.0 — Visor moderno de Markdown con Splits infinitos, Terminales WSL, Carousel, Mermaid, Vim y Live-Reload
+  console.log(`mdv 1.5.1 — Visor moderno de Markdown con Splits infinitos, Terminales WSL, Carousel, Mermaid, Vim y Live-Reload
 
 Uso:
   mdv                              Abre la carpeta actual y explora todos los .md en subcarpetas
@@ -141,7 +141,7 @@ function parseArgs(argv) {
       process.exit(0);
     }
     if (arg === '-V' || arg === '--version') {
-      console.log('mdv 1.5.0');
+      console.log('mdv 1.5.1');
       process.exit(0);
     }
     if (arg === '--update') {
@@ -457,7 +457,7 @@ function buildHtmlShell({
   <link rel="stylesheet" href="/vendor/overlayscrollbars/overlayscrollbars.min.css" />
   <link rel="stylesheet" href="/vendor/xterm/xterm.css" />
   <link rel="stylesheet" href="/vendor/katex/katex.min.css" />
-  <link rel="stylesheet" href="/assets/styles.css?v=1.5.0" />
+  <link rel="stylesheet" href="/assets/styles.css?v=1.5.1" />
 </head>
 <body class="${hideFilesClass}">
   <header class="mdv-topbar">
@@ -596,7 +596,7 @@ function buildHtmlShell({
   <script src="/vendor/xterm/xterm.js"></script>
   <script src="/vendor/xterm/addon-fit.js"></script>
   <script src="/vendor/mermaid/mermaid.min.js"></script>
-  <script src="/assets/app.js?v=1.5.0"></script>
+  <script src="/assets/app.js?v=1.5.1"></script>
 </body>
 </html>`;
 }

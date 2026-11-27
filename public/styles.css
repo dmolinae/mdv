@@ -1661,3 +1661,14 @@ html, body {
   background: color-mix(in srgb, var(--text-muted) 35%, transparent);
   border-radius: 999px;
 }
+
+/* Map both Windows Win32 nameID=1 ("Iosevka NF") and Typographic nameID=16 ("Iosevka Nerd Font") */
+@font-face {
+  font-family: "MDV Iosevka Nerd";
+  src: local("Iosevka Nerd Font"),
+       local("Iosevka NF"),
+       local("IosevkaNF"),
+       local("Iosevka Nerd Font Mono"),
+       local("Iosevka NFM");
+  font-display: block;
+}

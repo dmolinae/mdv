@@ -271,7 +271,7 @@
     for (const mp of allMarkdownPanes()) {
       mp.article.style.fontSize = `${zoomPercent}%`;
     }
-    const termPx = Math.max(11, Math.min(24, Math.round((14 * zoomPercent) / 100)));
+    const termPx = Math.max(11, Math.min(24, Math.round((15 * zoomPercent) / 100)));
     for (const tp of allTerminalPanes()) {
       if (tp.term) {
         tp.term.options.fontSize = termPx;
@@ -418,13 +418,14 @@
     const mountEl = section.querySelector('.mdv-terminal-mount');
     const titleEl = section.querySelector('[data-pane-title]');
 
-    const termPx = Math.max(11, Math.min(24, Math.round((14 * zoomPercent) / 100)));
+    const termPx = Math.max(11, Math.min(24, Math.round((15 * zoomPercent) / 100)));
     const term = window.Terminal
       ? new window.Terminal({
           cursorBlink: true,
           fontSize: termPx,
-          fontFamily: '"Cascadia Code", "JetBrains Mono", Consolas, ui-monospace, monospace',
-          lineHeight: 1.18,
+          fontFamily:
+            '"MDV Iosevka Nerd", "Iosevka Nerd Font", "Iosevka NF", "Iosevka Nerd Font Mono", "Iosevka NFM", "Iosevka", "Cascadia Code", monospace',
+          lineHeight: 1.16,
           scrollback: 5000,
           allowProposedApi: true,
           theme: XTERM_THEMES[currentThemeName()] || XTERM_THEMES.tokyo
@@ -496,6 +497,15 @@
         });
 
         fitTerminal();
+        if (document.fonts?.load) {
+          document.fonts.load(`${termPx}px "MDV Iosevka Nerd"`).then(() => {
+            try {
+              term._core?._charSizeService?.measure?.();
+              term.clearTextureAtlas?.();
+              fitTerminal();
+            } catch {}
+          });
+        }
         const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
         const wsUrl = `${proto}//${location.host}/ws/pty?cwd=${encodeURIComponent(targetCwd)}&cols=${term.cols}&rows=${term.rows}`;
         ws = new WebSocket(wsUrl);
