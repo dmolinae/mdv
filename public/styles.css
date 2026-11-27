@@ -1212,3 +1212,212 @@ body.hide-toc .mdv-layout {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* Split Views Layout & Resizer */
+html, body {
+  height: 100%;
+  overflow: hidden;
+}
+
+.mdv-layout {
+  height: calc(100vh - 50px);
+  min-height: 0;
+}
+
+.mdv-sidebar-files,
+.mdv-sidebar-toc {
+  position: static;
+  height: 100%;
+}
+
+.mdv-split-group {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.mdv-panes-root {
+  display: flex;
+  flex-direction: row;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  position: relative;
+}
+
+.mdv-panes-root[data-split-mode="horizontal"] {
+  flex-direction: column;
+}
+
+.mdv-pane {
+  flex: 1 1 50%;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-app);
+  position: relative;
+}
+
+.mdv-pane[hidden] {
+  display: none !important;
+}
+
+.mdv-pane-bar {
+  display: none;
+  height: 34px;
+  padding: 0 12px;
+  align-items: center;
+  justify-content: space-between;
+  background: color-mix(in srgb, var(--bg-surface) 88%, var(--bg-app));
+  border-bottom: 1px solid var(--border-subtle);
+  border-top: 2px solid transparent;
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.mdv-panes-root:not([data-split-mode="none"]) .mdv-pane-bar {
+  display: flex;
+}
+
+.mdv-panes-root:not([data-split-mode="none"]) .mdv-pane.is-focused .mdv-pane-bar {
+  border-top-color: var(--accent);
+  background: color-mix(in srgb, var(--bg-elevated) 78%, var(--bg-surface));
+}
+
+.mdv-pane-bar-left,
+.mdv-pane-bar-right {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.mdv-pane-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--border-strong);
+  flex-shrink: 0;
+}
+
+.mdv-pane.is-focused .mdv-pane-dot {
+  background: var(--accent);
+  box-shadow: 0 0 7px var(--accent);
+}
+
+.mdv-pane-title {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mdv-pane.is-focused .mdv-pane-title {
+  color: var(--text-heading);
+}
+
+.mdv-pane-btn {
+  height: 22px;
+  padding: 0 7px;
+  border-radius: 5px;
+  border: 1px solid var(--border-subtle);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.14s;
+}
+
+.mdv-pane-btn:hover {
+  color: var(--text-heading);
+  border-color: var(--accent);
+  background: var(--bg-hover);
+}
+
+.mdv-pane-btn.is-active {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.mdv-pane-scroller {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 34px 40px 92px;
+  min-height: 0;
+}
+
+.mdv-panes-root[data-split-mode="vertical"] .mdv-pane-scroller {
+  padding: 26px 28px 84px;
+}
+
+.mdv-split-resizer {
+  flex: 0 0 6px;
+  background: var(--border-subtle);
+  cursor: col-resize;
+  transition: background 0.15s;
+  z-index: 15;
+}
+
+.mdv-panes-root[data-split-mode="horizontal"] .mdv-split-resizer {
+  cursor: row-resize;
+}
+
+.mdv-split-resizer:hover,
+.mdv-split-resizer.is-dragging {
+  background: var(--accent);
+}
+
+.mdv-split-resizer[hidden] {
+  display: none !important;
+}
+
+/* File tree hover "Open in Split" action & secondary badge */
+.mdv-file-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.mdv-file-item a {
+  flex: 1;
+  min-width: 0;
+}
+
+.mdv-file-item.is-secondary:not(.is-current) a {
+  border-left: 2px solid var(--accent);
+  color: var(--text-heading);
+}
+
+.mdv-open-split-btn {
+  opacity: 0;
+  width: 24px;
+  height: 24px;
+  margin-right: 3px;
+  padding: 0;
+  border-radius: 5px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: opacity 0.12s, color 0.12s, background 0.12s;
+}
+
+.mdv-file-item:hover .mdv-open-split-btn {
+  opacity: 1;
+}
+
+.mdv-open-split-btn:hover {
+  color: var(--accent);
+  border-color: var(--border-subtle);
+  background: var(--bg-elevated);
+}

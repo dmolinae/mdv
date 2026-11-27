@@ -62,28 +62,33 @@ const MIME_TYPES = {
 };
 
 function printHelp() {
-  console.log(`mdv 1.2.0 — Visor moderno de Markdown con explorador recursivo, Carousel, Mermaid, Vim y Live-Reload
+  console.log(`mdv 1.3.0 — Visor moderno de Markdown con Split Views, explorador recursivo, Carousel, Mermaid, Vim y Live-Reload
 
 Uso:
-  mdv                         Abre la carpeta actual y explora todos los .md en subcarpetas
-  mdv <carpeta | archivo.md>  Abre una carpeta o archivo específico
-  cat archivo.md | mdv        Renderiza entrada estándar
+  mdv                              Abre la carpeta actual y explora todos los .md en subcarpetas
+  mdv <carpeta | archivo.md>       Abre una carpeta o archivo específico
+  mdv <archivo1.md> <archivo2.md>  Abre ambos archivos directamente en Split View vertical
+  cat archivo.md | mdv             Renderiza entrada estándar
 
 Opciones:
-  -t, --theme <nombre>   Tema inicial: tokyo (default), github-dark, catppuccin, light
-  -b, --browser          Abrir en pestaña normal del navegador (en vez de ventana --app)
-      --no-open          No abrir ventana automáticamente (solo imprimir URL)
-      --fg               Mantener el servidor en primer plano en la terminal
-      --keep-alive       No apagar el servidor automáticamente al cerrar la ventana
-  -p, --port <puerto>    Puerto local (por defecto asigna uno libre automáticamente)
-      --update           Actualizar mdv desde GitHub a la última versión
-  -h, --help             Mostrar esta ayuda
-  -V, --version          Mostrar versión`);
+  -s, --split <archivo2.md>  Abrir segundo archivo en Split View al iniciar
+      --hz                   Usar Split View horizontal (arriba/abajo) cuando se abren 2 archivos
+  -t, --theme <nombre>       Tema inicial: tokyo (default), github-dark, catppuccin, light
+  -b, --browser              Abrir en pestaña normal del navegador (en vez de ventana --app)
+      --no-open              No abrir ventana automáticamente (solo imprimir URL)
+      --fg                   Mantener el servidor en primer plano en la terminal
+      --keep-alive           No apagar el servidor automáticamente al cerrar la ventana
+  -p, --port <puerto>        Puerto local (por defecto asigna uno libre automáticamente)
+      --update               Actualizar mdv desde GitHub a la última versión
+  -h, --help                 Mostrar esta ayuda
+  -V, --version              Mostrar versión`);
 }
 
 function parseArgs(argv) {
   const opts = {
     target: null,
+    splitTarget: null,
+    splitDirection: 'vertical',
     workspace: null,
     dirMode: false,
     theme: 'tokyo',
@@ -103,7 +108,7 @@ function parseArgs(argv) {
       process.exit(0);
     }
     if (arg === '-V' || arg === '--version') {
-      console.log('mdv 1.2.0');
+      console.log('mdv 1.3.0');
       process.exit(0);
     }
     if (arg === '--update') {
@@ -126,11 +131,16 @@ function parseArgs(argv) {
     else if (arg === '--keep-alive') opts.keepAlive = true;
     else if (arg === '--server-child') opts.serverChild = true;
     else if (arg === '--dir-mode') opts.dirMode = true;
+    else if (arg === '--hz') opts.splitDirection = 'horizontal';
+    else if ((arg === '-s' || arg === '--split') && argv[i + 1]) opts.splitTarget = argv[++i];
     else if (arg === '--workspace' && argv[i + 1]) opts.workspace = argv[++i];
     else if ((arg === '-t' || arg === '--theme') && argv[i + 1]) opts.theme = argv[++i];
     else if ((arg === '-p' || arg === '--port') && argv[i + 1]) opts.port = Number(argv[++i]) || 0;
     else if (arg === '--stdin-file' && argv[i + 1]) opts.stdinFile = argv[++i];
-    else if (!arg.startsWith('-') && !opts.target) opts.target = arg;
+    else if (!arg.startsWith('-')) {
+      if (!opts.target) opts.target = arg;
+      else if (!opts.splitTarget) opts.splitTarget = arg;
+    }
   }
   return opts;
 }
@@ -143,10 +153,6 @@ function escapeHtmlAttr(str) {
     .replace(/"/g, '&quot;');
 }
 
-/**
- * Recursively scans rootDir for all .md / .markdown files across subfolders,
- * returning a flat ordered list with relative paths + a nested tree structure.
- */
 export function scanMarkdownWorkspace(rootDir, { maxDepth = 8, maxFiles = 1500 } = {}) {
   const files = [];
 
@@ -177,7 +183,6 @@ export function scanMarkdownWorkspace(rootDir, { maxDepth = 8, maxFiles = 1500 }
 
     const childNodes = [];
 
-    // Folders first (like VS Code / standard file explorers), only kept if they contain .md files
     for (const d of dirs) {
       if (files.length >= maxFiles) break;
       const fullSubDir = path.join(currentDir, d.name);
@@ -187,7 +192,6 @@ export function scanMarkdownWorkspace(rootDir, { maxDepth = 8, maxFiles = 1500 }
       }
     }
 
-    // Then Markdown files in this folder
     for (const f of mdFiles) {
       if (files.length >= maxFiles) break;
       const fullPath = path.join(currentDir, f.name);
@@ -243,10 +247,13 @@ function renderTreeNodesHtml(nodes, activeFilePath) {
       const isCurrent = node.fullPath === activeFilePath;
       return `
         <li class="mdv-file-item${isCurrent ? ' is-current' : ''}" data-file-path="${escapeHtmlAttr(node.fullPath)}" data-rel-path="${escapeHtmlAttr(node.relPath.toLowerCase())}">
-          <a href="/?file=${encodeURIComponent(node.fullPath)}" data-md-link title="${escapeHtmlAttr(node.relPath)}">
+          <a href="/?file=${encodeURIComponent(node.fullPath)}" data-md-link title="${escapeHtmlAttr(node.relPath)} (Alt+Clic abrir en Split)">
             <svg viewBox="0 0 16 16" width="13" height="13" fill="currentColor" style="flex-shrink:0;opacity:0.72"><path d="M2 1.75C2 .784 2.784 0 3.75 0h6.586c.464 0 .909.184 1.237.513l2.914 2.914c.329.328.513.773.513 1.237v9.586A1.75 1.75 0 0 1 13.25 16h-9.5A1.75 1.75 0 0 1 2 14.25Zm1.75-.25a.25.25 0 0 0-.25.25v12.5c0 .138.112.25.25.25h9.5a.25.25 0 0 0 .25-.25V6h-2.75A1.75 1.75 0 0 1 9 4.25V1.5Zm6.75.062V4.25c0 .138.112.25.25.25h2.688Z"/></svg>
             <span class="mdv-file-label">${escapeHtmlAttr(node.name)}</span>
           </a>
+          <button type="button" class="mdv-open-split-btn" data-open-in-split="${escapeHtmlAttr(node.fullPath)}" title="Abrir en panel Split">
+            <svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor"><path d="M1.75 1h12.5c.966 0 1.75.784 1.75 1.75v10.5A1.75 1.75 0 0 1 14.25 15H1.75A1.75 1.75 0 0 1 0 13.25V2.75C0 1.784.784 1 1.75 1ZM1.5 2.75v10.5c0 .138.112.25.25.25h5.75v-11H1.75a.25.25 0 0 0-.25.25Zm7.25 10.75h5.5a.25.25 0 0 0 .25-.25V2.75a.25.25 0 0 0-.25-.25h-5.5Z"/></svg>
+          </button>
         </li>`;
     })
     .join('');
@@ -254,20 +261,16 @@ function renderTreeNodesHtml(nodes, activeFilePath) {
 
 function pickDefaultMarkdownFile(files, rootDir) {
   if (files.length === 0) return null;
-  // 1. Root README.md
   const rootReadme = files.find(
     (f) => path.dirname(f.fullPath) === rootDir && /^readme\.(md|markdown)$/i.test(f.name)
   );
   if (rootReadme) return rootReadme.fullPath;
-  // 2. Any root .md file
   const rootMd = files.find((f) => path.dirname(f.fullPath) === rootDir);
   if (rootMd) return rootMd.fullPath;
-  // 3. Shallowest README.md in subfolders
   const anyReadme = [...files]
     .filter((f) => /^readme\.(md|markdown)$/i.test(f.name))
     .sort((a, b) => a.relPath.split('/').length - b.relPath.split('/').length)[0];
   if (anyReadme) return anyReadme.fullPath;
-  // 4. First discovered .md file
   return files[0].fullPath;
 }
 
@@ -292,7 +295,6 @@ function resolveInitialTarget(targetArg, explicitWorkspace) {
     };
   }
 
-  // File target: if explicitWorkspace given, use it; else if file is inside cwd (and cwd isn't filesystem root), use cwd or file's parent
   let workspaceDir = explicitWorkspace ? path.resolve(explicitWorkspace) : path.dirname(raw);
   if (!explicitWorkspace && raw.startsWith(cwd + path.sep) && cwd !== '/' && cwd !== process.env.HOME) {
     workspaceDir = cwd;
@@ -321,7 +323,7 @@ function findWindowsBrowser() {
 function launchWindow(url, appMode) {
   const browser = findWindowsBrowser();
   if (browser && appMode) {
-    const child = spawn(browser, [`--app=${url}`, '--window-size=1340,860'], {
+    const child = spawn(browser, [`--app=${url}`, '--window-size=1420,880'], {
       detached: true,
       stdio: 'ignore'
     });
@@ -341,7 +343,6 @@ function launchWindow(url, appMode) {
     child.unref();
     return;
   }
-  // Native Linux / macOS fallback
   const fallbackCmd = process.platform === 'darwin' ? 'open' : 'xdg-open';
   try {
     const child = spawn(fallbackCmd, [url], { detached: true, stdio: 'ignore' });
@@ -358,7 +359,17 @@ function computeFileSignature(filePath) {
   }
 }
 
-function buildHtmlShell({ filePath, workspaceDir, dirMode, html, toc, title, defaultTheme }) {
+function buildHtmlShell({
+  filePath,
+  splitFilePath,
+  splitDirection,
+  workspaceDir,
+  dirMode,
+  html,
+  toc,
+  title,
+  defaultTheme
+}) {
   const relDisplay = path.relative(workspaceDir, filePath).split(path.sep).join('/') || path.basename(filePath);
   const workspaceName = path.basename(workspaceDir) || workspaceDir;
   const { tree, files } = scanMarkdownWorkspace(workspaceDir);
@@ -399,7 +410,17 @@ function buildHtmlShell({ filePath, workspaceDir, dirMode, html, toc, title, def
       </div>
     </div>
     <div class="mdv-topbar-right">
-      <button type="button" id="mdv-open-search" class="mdv-tool-btn" title="Buscar en documento (/)">
+      <div class="mdv-split-group" role="group" aria-label="Split View">
+        <button type="button" id="mdv-split-vertical" class="mdv-tool-btn" title="Split Vertical lado a lado (V o Espacio v)">
+          <svg viewBox="0 0 16 16" width="13" height="13" fill="currentColor"><path d="M1.75 1h12.5c.966 0 1.75.784 1.75 1.75v10.5A1.75 1.75 0 0 1 14.25 15H1.75A1.75 1.75 0 0 1 0 13.25V2.75C0 1.784.784 1 1.75 1ZM1.5 2.75v10.5c0 .138.112.25.25.25h5.5v-11h-5.5a.25.25 0 0 0-.25.25Zm7 10.75h5.75a.25.25 0 0 0 .25-.25V2.75a.25.25 0 0 0-.25-.25H8.5Z"/></svg>
+          <span>Split |</span>
+        </button>
+        <button type="button" id="mdv-split-horizontal" class="mdv-tool-btn" title="Split Horizontal arriba/abajo (S o Espacio s)">
+          <svg viewBox="0 0 16 16" width="13" height="13" fill="currentColor"><path d="M1.75 1h12.5c.966 0 1.75.784 1.75 1.75v10.5A1.75 1.75 0 0 1 14.25 15H1.75A1.75 1.75 0 0 1 0 13.25V2.75C0 1.784.784 1 1.75 1ZM1.5 2.75v4.5h13v-4.5a.25.25 0 0 0-.25-.25H1.75a.25.25 0 0 0-.25.25Zm0 6v4.5c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25v-4.5Z"/></svg>
+          <span>Split —</span>
+        </button>
+      </div>
+      <button type="button" id="mdv-open-search" class="mdv-tool-btn" title="Buscar en panel activo (/)">
         <svg viewBox="0 0 16 16" width="13" height="13" fill="currentColor"><path d="M10.68 11.74a6 6 0 0 1-7.922-8.982 6 6 0 0 1 8.982 7.922l3.04 3.04a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215ZM11.5 7a4.499 4.499 0 1 0-8.997 0A4.499 4.499 0 0 0 11.5 7Z"/></svg>
         <span>/</span>
       </button>
@@ -425,13 +446,50 @@ function buildHtmlShell({ filePath, workspaceDir, dirMode, html, toc, title, def
         </div>
       </div>
       <div class="mdv-file-filter-wrap">
-        <input id="mdv-file-filter" type="text" placeholder="Filtrar .md... (Ctrl+P)" autocomplete="off" spellcheck="false" />
+        <input id="mdv-file-filter" type="text" placeholder="Filtrar .md... (Ctrl+P · Alt+Clic Split)" autocomplete="off" spellcheck="false" />
       </div>
       <ul id="mdv-file-list" class="mdv-file-tree">${treeHtml}</ul>
     </aside>
 
-    <main class="mdv-main">
-      <article id="mdv-article" class="mdv-article">${html}</article>
+    <main id="mdv-panes-root" class="mdv-panes-root" data-split-mode="none">
+      <!-- Primary Pane (0) -->
+      <section class="mdv-pane is-focused" data-pane-index="0">
+        <div class="mdv-pane-bar">
+          <div class="mdv-pane-bar-left">
+            <span class="mdv-pane-dot"></span>
+            <span class="mdv-pane-title" data-pane-title>${escapeHtmlAttr(relDisplay)}</span>
+          </div>
+          <div class="mdv-pane-bar-right">
+            <button type="button" class="mdv-pane-btn" data-pane-sync title="Sincronizar scroll entre paneles (Espacio y)">Sync</button>
+            <button type="button" class="mdv-pane-btn" data-pane-swap title="Intercambiar paneles (Espacio x)">⇄</button>
+            <button type="button" class="mdv-pane-btn" data-pane-close="0" title="Cerrar este panel (q o Espacio q)">✕</button>
+          </div>
+        </div>
+        <div class="mdv-pane-scroller" data-pane-scroller="0">
+          <article id="mdv-article" class="mdv-article" data-pane-article="0">${html}</article>
+        </div>
+      </section>
+
+      <!-- Draggable Split Divider -->
+      <div id="mdv-split-resizer" class="mdv-split-resizer" title="Arrastra para redimensionar · Doble clic 50/50" hidden></div>
+
+      <!-- Secondary Split Pane (1) -->
+      <section class="mdv-pane" data-pane-index="1" hidden>
+        <div class="mdv-pane-bar">
+          <div class="mdv-pane-bar-left">
+            <span class="mdv-pane-dot"></span>
+            <span class="mdv-pane-title" data-pane-title>—</span>
+          </div>
+          <div class="mdv-pane-bar-right">
+            <button type="button" class="mdv-pane-btn" data-pane-sync title="Sincronizar scroll entre paneles (Espacio y)">Sync</button>
+            <button type="button" class="mdv-pane-btn" data-pane-swap title="Intercambiar paneles (Espacio x)">⇄</button>
+            <button type="button" class="mdv-pane-btn" data-pane-close="1" title="Cerrar este panel (q o Espacio q)">✕</button>
+          </div>
+        </div>
+        <div class="mdv-pane-scroller" data-pane-scroller="1">
+          <article class="mdv-article" data-pane-article="1"></article>
+        </div>
+      </section>
     </main>
 
     <aside class="mdv-sidebar-toc">
@@ -443,7 +501,7 @@ function buildHtmlShell({ filePath, workspaceDir, dirMode, html, toc, title, def
   <!-- Vim Search Bar (/) -->
   <div id="mdv-search-bar" class="mdv-search-bar" hidden>
     <span class="mdv-search-Slash">/</span>
-    <input id="mdv-search-input" type="text" placeholder="Buscar en documento... (Enter fijar, n/N navegar, Esc cerrar)" autocomplete="off" spellcheck="false" />
+    <input id="mdv-search-input" type="text" placeholder="Buscar en panel activo... (Enter fijar, n/N navegar, Esc cerrar)" autocomplete="off" spellcheck="false" />
     <span id="mdv-search-count" class="mdv-search-count">0 / 0</span>
     <button type="button" id="mdv-search-prev" class="mdv-icon-btn" title="Anterior (N)">N</button>
     <button type="button" id="mdv-search-next" class="mdv-icon-btn" title="Siguiente (n)">n</button>
@@ -465,6 +523,10 @@ function buildHtmlShell({ filePath, workspaceDir, dirMode, html, toc, title, def
   <script>
     window.__MDV_INITIAL__ = ${JSON.stringify({
       currentFile: filePath,
+      initialToc: toc,
+      initialRelPath: relDisplay,
+      splitFile: splitFilePath || null,
+      splitDirection: splitDirection || 'vertical',
       workspaceDir,
       dirMode: Boolean(dirMode),
       defaultTheme
@@ -498,6 +560,11 @@ async function main() {
   }
 
   const { initialFile, workspaceDir, isDirectoryTarget } = resolveInitialTarget(opts.target, opts.workspace);
+  const resolvedSplitFile = opts.splitTarget ? path.resolve(opts.splitTarget) : null;
+  if (resolvedSplitFile && !fs.existsSync(resolvedSplitFile)) {
+    console.error(`Error: no existe el segundo archivo '${opts.splitTarget}'`);
+    process.exit(1);
+  }
   const effectiveDirMode = opts.dirMode || isDirectoryTarget;
 
   if (!opts.foreground && !opts.serverChild && opts.open) {
@@ -510,6 +577,10 @@ async function main() {
       '--theme',
       opts.theme
     ];
+    if (resolvedSplitFile) {
+      forwardArgs.push('--split', resolvedSplitFile);
+      if (opts.splitDirection === 'horizontal') forwardArgs.push('--hz');
+    }
     if (effectiveDirMode) forwardArgs.push('--dir-mode');
     if (!opts.appMode) forwardArgs.push('--browser');
     if (opts.keepAlive) forwardArgs.push('--keep-alive');
@@ -521,69 +592,70 @@ async function main() {
       stdio: 'ignore'
     });
     bg.unref();
-    const label = effectiveDirMode
-      ? `carpeta ${path.basename(workspaceDir)} (${path.relative(workspaceDir, initialFile) || path.basename(initialFile)})`
-      : path.basename(initialFile);
+    const label = resolvedSplitFile
+      ? `${path.basename(initialFile)} | ${path.basename(resolvedSplitFile)}`
+      : effectiveDirMode
+        ? `carpeta ${path.basename(workspaceDir)} (${path.relative(workspaceDir, initialFile) || path.basename(initialFile)})`
+        : path.basename(initialFile);
     console.log(`Abriendo ${label} en ventana mdv...`);
     process.exit(0);
   }
 
-  let activeFile = initialFile;
-  let lastSignature = computeFileSignature(activeFile);
+  // Multi-file watcher map for Split Views: tracks every open file's SHA-1 + fs.watch on its parent directory
+  const watchedSignatures = new Map();
+  const watchedDirs = new Map();
   let lastTreeCount = scanMarkdownWorkspace(workspaceDir).files.length;
   const sseClients = new Set();
   let hadClient = false;
   let shutdownTimer = null;
-  let dirWatcher = null;
   let debounceTimer = null;
 
-  function broadcastReload(reason = 'change') {
-    const payload = JSON.stringify({ file: activeFile, reason, ts: Date.now() });
+  function broadcastReload(changedFile, reason = 'content') {
+    const payload = JSON.stringify({ file: changedFile, reason, ts: Date.now() });
     for (const res of sseClients) {
       res.write(`event: reload\ndata: ${payload}\n\n`);
     }
   }
 
-  function checkActiveFileChanged() {
-    const sig = computeFileSignature(activeFile);
-    if (sig && sig !== lastSignature) {
-      lastSignature = sig;
-      broadcastReload('content');
+  function checkAllWatchedFiles() {
+    for (const [filePath, prevSig] of watchedSignatures.entries()) {
+      const sig = computeFileSignature(filePath);
+      if (sig && sig !== prevSig) {
+        watchedSignatures.set(filePath, sig);
+        broadcastReload(filePath, 'content');
+      }
     }
   }
 
-  function watchTarget(filePath) {
-    const dirToWatch = path.dirname(filePath);
-    if (dirWatcher) {
-      try { dirWatcher.close(); } catch {}
-      dirWatcher = null;
+  function registerWatchedFile(filePath) {
+    const resolved = path.resolve(filePath);
+    watchedSignatures.set(resolved, computeFileSignature(resolved));
+    const dir = path.dirname(resolved);
+    if (!watchedDirs.has(dir)) {
+      try {
+        const w = fs.watch(dir, { persistent: false }, () => {
+          clearTimeout(debounceTimer);
+          debounceTimer = setTimeout(() => checkAllWatchedFiles(), 65);
+        });
+        watchedDirs.set(dir, w);
+      } catch {}
     }
-    lastSignature = computeFileSignature(filePath);
-
-    try {
-      dirWatcher = fs.watch(dirToWatch, { persistent: false }, () => {
-        clearTimeout(debounceTimer);
-        debounceTimer = setTimeout(() => {
-          checkActiveFileChanged();
-        }, 65);
-      });
-    } catch {}
   }
+
+  registerWatchedFile(initialFile);
+  if (resolvedSplitFile) registerWatchedFile(resolvedSplitFile);
 
   const pollTimer = setInterval(() => {
-    if (sseClients.size > 0) {
-      checkActiveFileChanged();
-    }
+    if (sseClients.size > 0) checkAllWatchedFiles();
   }, 350);
   pollTimer.unref();
 
-  // Periodically check if new/deleted .md files appeared anywhere in workspaceDir subfolders
   const treePollTimer = setInterval(() => {
     if (sseClients.size > 0) {
       const count = scanMarkdownWorkspace(workspaceDir).files.length;
       if (count !== lastTreeCount) {
         lastTreeCount = count;
-        broadcastReload('tree');
+        broadcastReload(null, 'tree');
       }
     }
   }, 2000);
@@ -595,8 +667,6 @@ async function main() {
     }
   }, 15000);
   heartbeatTimer.unref();
-
-  watchTarget(activeFile);
 
   function serveStaticFile(res, fullPath) {
     if (!fs.existsSync(fullPath) || !fs.statSync(fullPath).isFile()) {
@@ -646,19 +716,14 @@ async function main() {
     }
 
     if (url.pathname === '/api/doc') {
-      const requested = url.searchParams.get('file') || activeFile;
+      const requested = url.searchParams.get('file') || initialFile;
       const resolved = path.resolve(requested);
       if (!fs.existsSync(resolved) || !fs.statSync(resolved).isFile()) {
         res.writeHead(404, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'Archivo no encontrado' }));
         return;
       }
-      if (resolved !== activeFile) {
-        activeFile = resolved;
-        watchTarget(activeFile);
-      } else {
-        lastSignature = computeFileSignature(activeFile);
-      }
+      registerWatchedFile(resolved);
       const raw = fs.readFileSync(resolved, 'utf8');
       const rendered = renderMarkdownDocument(raw, { baseDir: path.dirname(resolved) });
       const { tree, files } = scanMarkdownWorkspace(workspaceDir);
@@ -710,14 +775,17 @@ async function main() {
 
     if (url.pathname === '/') {
       const queryFile = url.searchParams.get('file');
-      if (queryFile && fs.existsSync(queryFile) && fs.statSync(queryFile).isFile()) {
-        activeFile = path.resolve(queryFile);
-        watchTarget(activeFile);
-      }
-      const raw = fs.readFileSync(activeFile, 'utf8');
-      const rendered = renderMarkdownDocument(raw, { baseDir: path.dirname(activeFile) });
+      const primaryFile =
+        queryFile && fs.existsSync(queryFile) && fs.statSync(queryFile).isFile()
+          ? path.resolve(queryFile)
+          : initialFile;
+      registerWatchedFile(primaryFile);
+      const raw = fs.readFileSync(primaryFile, 'utf8');
+      const rendered = renderMarkdownDocument(raw, { baseDir: path.dirname(primaryFile) });
       const htmlPage = buildHtmlShell({
-        filePath: activeFile,
+        filePath: primaryFile,
+        splitFilePath: resolvedSplitFile,
+        splitDirection: opts.splitDirection,
         workspaceDir,
         dirMode: effectiveDirMode,
         defaultTheme: opts.theme,
@@ -753,7 +821,6 @@ async function main() {
   });
 }
 
-// Only run CLI main when executed directly (allows importing scanMarkdownWorkspace for tests)
 if (process.argv[1] && fs.realpathSync(process.argv[1]) === fs.realpathSync(fileURLToPath(import.meta.url))) {
   main();
 }

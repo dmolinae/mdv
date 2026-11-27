@@ -12,7 +12,8 @@ Visor ligero de Markdown lanzado desde la terminal que abre una **ventana limpia
   - **Fórmulas matemáticas (KaTeX):** soporte en línea (`$...$`) y en bloque (`$$...$$`).
   - **Código con resaltado (`highlight.js`):** botón de copiado rápido y soporte de bloques `<details>` desplegables.
 - **Explorador recursivo de carpetas:** ejecuta `mdv` en cualquier directorio para listar en un árbol colapsable todos los `.md` de la carpeta actual y subcarpetas (con filtro rápido `Ctrl+P`).
-- **Mappings estilo Vim + Índice (TOC):** navegación fluida con teclado (`j`/`k`, `5j`, `d`/`u`, `gg`/`G`, `]]`/`[[`, `/` + `n`/`N`, `h`/`l`, `zR`/`zM`, `?`, `q`) y tabla de contenidos lateral con *scroll-spy*.
+- **Split Views (Vertical y Horizontal):** compara dos documentos `.md` (o dos secciones distintas del mismo documento) lado a lado o arriba/abajo con divisor arrastrable, intercambio de paneles, scroll independiente o sincronizado (`Sync`) y *live-reload* simultáneo en ambos paneles.
+- **Mappings estilo Vim + Índice (TOC):** navegación fluida con teclado (`j`/`k`, `5j`, `d`/`u`, `gg`/`G`, `]]`/`[[`, `/` + `n`/`N`, `V`/`S`, `Espacio` leader, `h`/`l`, `zR`/`zM`, `?`, `q`) y tabla de contenidos lateral con *scroll-spy* del panel activo.
 - **Live-Reload híbrido y apagado automático:** detecta cambios al instante (incluso guardados atómicos de Vim/Neovim y rutas `/mnt/c/...`), devuelve el prompt de la terminal enseguida y apaga su servidor local automáticamente al cerrar la ventana.
 
 ---
@@ -55,6 +56,10 @@ mdv
 mdv README.md
 mdv ./docs
 
+# Abrir dos archivos directamente en Split View (vertical u horizontal con --hz)
+mdv README.md docs/arquitectura.md
+mdv --hz README.md docs/arquitectura.md
+
 # Leer desde entrada estándar (pipe)
 cat notas.md | mdv
 
@@ -83,6 +88,11 @@ mdv -b demo.md
 | Alternar ancho de lectura / Rotar tema | `w` / `c` |
 | Zoom `+` / `-` / restablecer | `+` · `-` · `0` |
 | Copiar ruta actual / bloque de código visible | `yy` / `yc` |
+| Split vertical / Split horizontal | `V` / `S` (o `Espacio v` / `Espacio s`) |
+| Cambiar foco entre paneles Split | `Tab` (o `Espacio h/l/j/k/w`) |
+| Abrir archivo del árbol en el otro panel Split | `Alt + Clic` (o icono Split al pasar ratón) |
+| Intercambiar paneles / Igualar 50:50 / Sync scroll | `Espacio x` · `Espacio =` · `Espacio y` |
+| Cerrar panel Split activo / Dejar solo panel activo | `q` (o `Espacio q`) · `Espacio o` |
 | Forzar recarga / Mostrar ayuda / Cerrar ventana | `r` · `?` · `q` |
 
 ---
