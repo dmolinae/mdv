@@ -108,7 +108,7 @@ function parseArgs(argv) {
       process.exit(0);
     }
     if (arg === '-V' || arg === '--version') {
-      console.log('mdv 1.3.0');
+      console.log('mdv 1.3.1');
       process.exit(0);
     }
     if (arg === '--update') {
@@ -391,6 +391,7 @@ function buildHtmlShell({
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>${escapeHtmlAttr(title || path.basename(filePath))} — mdv</title>
+  <link rel="stylesheet" href="/vendor/overlayscrollbars/overlayscrollbars.min.css" />
   <link rel="stylesheet" href="/vendor/katex/katex.min.css" />
   <link rel="stylesheet" href="/assets/styles.css" />
 </head>
@@ -438,17 +439,21 @@ function buildHtmlShell({
 
   <div class="mdv-layout">
     <aside class="mdv-sidebar-files">
-      <div class="mdv-explorer-header">
-        <h2 class="mdv-panel-title" title="${escapeHtmlAttr(workspaceDir)}">${escapeHtmlAttr(workspaceName)}</h2>
-        <div class="mdv-explorer-actions">
-          <button type="button" id="mdv-tree-expand-all" class="mdv-mini-btn" title="Expandir subcarpetas">+</button>
-          <button type="button" id="mdv-tree-collapse-all" class="mdv-mini-btn" title="Colapsar subcarpetas">−</button>
+      <div class="mdv-explorer-top">
+        <div class="mdv-explorer-header">
+          <h2 class="mdv-panel-title" title="${escapeHtmlAttr(workspaceDir)}">${escapeHtmlAttr(workspaceName)}</h2>
+          <div class="mdv-explorer-actions">
+            <button type="button" id="mdv-tree-expand-all" class="mdv-mini-btn" title="Expandir subcarpetas">+</button>
+            <button type="button" id="mdv-tree-collapse-all" class="mdv-mini-btn" title="Colapsar subcarpetas">−</button>
+          </div>
+        </div>
+        <div class="mdv-file-filter-wrap">
+          <input id="mdv-file-filter" type="text" placeholder="Filtrar .md... (Ctrl+P · Alt+Clic Split)" autocomplete="off" spellcheck="false" />
         </div>
       </div>
-      <div class="mdv-file-filter-wrap">
-        <input id="mdv-file-filter" type="text" placeholder="Filtrar .md... (Ctrl+P · Alt+Clic Split)" autocomplete="off" spellcheck="false" />
+      <div id="mdv-files-scroll" class="mdv-sidebar-scroll" data-overlayscrollbars-initialize>
+        <ul id="mdv-file-list" class="mdv-file-tree">${treeHtml}</ul>
       </div>
-      <ul id="mdv-file-list" class="mdv-file-tree">${treeHtml}</ul>
     </aside>
 
     <main id="mdv-panes-root" class="mdv-panes-root" data-split-mode="none">
@@ -465,7 +470,7 @@ function buildHtmlShell({
             <button type="button" class="mdv-pane-btn" data-pane-close="0" title="Cerrar este panel (q o Espacio q)">✕</button>
           </div>
         </div>
-        <div class="mdv-pane-scroller" data-pane-scroller="0">
+        <div class="mdv-pane-scroller" data-pane-scroller="0" data-overlayscrollbars-initialize>
           <article id="mdv-article" class="mdv-article" data-pane-article="0">${html}</article>
         </div>
       </section>
@@ -486,15 +491,17 @@ function buildHtmlShell({
             <button type="button" class="mdv-pane-btn" data-pane-close="1" title="Cerrar este panel (q o Espacio q)">✕</button>
           </div>
         </div>
-        <div class="mdv-pane-scroller" data-pane-scroller="1">
+        <div class="mdv-pane-scroller" data-pane-scroller="1" data-overlayscrollbars-initialize>
           <article class="mdv-article" data-pane-article="1"></article>
         </div>
       </section>
     </main>
 
     <aside class="mdv-sidebar-toc">
-      <h2 class="mdv-panel-title">En esta página</h2>
-      <ul id="mdv-toc-list" class="mdv-toc-list">${tocHtml}</ul>
+      <h2 class="mdv-panel-title mdv-toc-top">En esta página</h2>
+      <div id="mdv-toc-scroll" class="mdv-sidebar-scroll" data-overlayscrollbars-initialize>
+        <ul id="mdv-toc-list" class="mdv-toc-list">${tocHtml}</ul>
+      </div>
     </aside>
   </div>
 
@@ -517,7 +524,9 @@ function buildHtmlShell({
 
   <!-- Modal -->
   <div id="mdv-modal" class="mdv-modal" hidden>
-    <div id="mdv-modal-body" class="mdv-modal-content"></div>
+    <div id="mdv-modal-scroll" class="mdv-modal-content" data-overlayscrollbars-initialize>
+      <div id="mdv-modal-body"></div>
+    </div>
   </div>
 
   <script>
@@ -532,6 +541,7 @@ function buildHtmlShell({
       defaultTheme
     })};
   </script>
+  <script src="/vendor/overlayscrollbars/overlayscrollbars.browser.es6.min.js"></script>
   <script src="/vendor/mermaid/mermaid.min.js"></script>
   <script src="/assets/app.js"></script>
 </body>
@@ -752,6 +762,15 @@ async function main() {
     }
     if (url.pathname === '/assets/app.js') {
       return serveStaticFile(res, path.join(PUBLIC_DIR, 'app.js'));
+    }
+    if (url.pathname === '/vendor/overlayscrollbars/overlayscrollbars.min.css') {
+      return serveStaticFile(res, path.join(NODE_MODULES_DIR, 'overlayscrollbars/styles/overlayscrollbars.min.css'));
+    }
+    if (url.pathname === '/vendor/overlayscrollbars/overlayscrollbars.browser.es6.min.js') {
+      return serveStaticFile(
+        res,
+        path.join(NODE_MODULES_DIR, 'overlayscrollbars/browser/overlayscrollbars.browser.es6.min.js')
+      );
     }
     if (url.pathname === '/vendor/mermaid/mermaid.min.js') {
       return serveStaticFile(res, path.join(NODE_MODULES_DIR, 'mermaid/dist/mermaid.min.js'));

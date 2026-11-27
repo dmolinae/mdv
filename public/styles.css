@@ -1421,3 +1421,83 @@ html, body {
   border-color: var(--border-subtle);
   background: var(--bg-elevated);
 }
+
+/* OverlayScrollbars Custom Floating Theme & Sidebar Scroll Layout */
+.mdv-sidebar-files,
+.mdv-sidebar-toc {
+  padding: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.mdv-explorer-top {
+  padding: 16px 14px 8px;
+  border-bottom: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+}
+
+.mdv-explorer-top .mdv-file-filter-wrap {
+  margin-bottom: 2px;
+}
+
+.mdv-toc-top {
+  padding: 18px 14px 10px 20px;
+  margin: 0;
+  flex-shrink: 0;
+}
+
+.mdv-sidebar-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 10px 12px 24px;
+}
+
+.mdv-pane-scroller {
+  padding: 0;
+}
+
+.mdv-pane-scroller [data-overlayscrollbars-viewport] {
+  padding: 34px 40px 92px;
+}
+
+.mdv-panes-root[data-split-mode="vertical"] .mdv-pane-scroller [data-overlayscrollbars-viewport] {
+  padding: 26px 28px 84px;
+}
+
+/* Custom sleek pill scrollbar theme */
+.os-theme-mdv {
+  box-sizing: border-box;
+  --os-size: 11px;
+  --os-padding-perpendicular: 2px;
+  --os-padding-axis: 4px;
+  --os-track-border-radius: 999px;
+  --os-track-bg: transparent;
+  --os-track-bg-hover: color-mix(in srgb, var(--bg-elevated) 55%, transparent);
+  --os-track-bg-active: color-mix(in srgb, var(--bg-elevated) 75%, transparent);
+  --os-handle-border-radius: 999px;
+  --os-handle-min-size: 36px;
+  --os-handle-perpendicular-size: 5px;
+  --os-handle-perpendicular-size-hover: 7px;
+  --os-handle-perpendicular-size-active: 7px;
+  --os-handle-interactive-area-offset: 4px;
+  --os-handle-bg: color-mix(in srgb, var(--text-muted) 38%, transparent);
+  --os-handle-bg-hover: color-mix(in srgb, var(--accent) 72%, var(--text-muted));
+  --os-handle-bg-active: var(--accent);
+}
+
+/* Subtle fallback styling for any minor inner overflow container before initialization */
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--text-muted) 32%, transparent);
+  border-radius: 999px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--accent);
+}

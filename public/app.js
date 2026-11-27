@@ -37,6 +37,53 @@
   const vimToastEl = document.getElementById('mdv-vim-toast');
 
   const initCfg = window.__MDV_INITIAL__ || {};
+  const OSGlobal = window.OverlayScrollbarsGlobal;
+  const OverlayScrollbars = OSGlobal?.OverlayScrollbars;
+  if (OverlayScrollbars && OSGlobal?.ClickScrollPlugin) {
+    OverlayScrollbars.plugin(OSGlobal.ClickScrollPlugin);
+  }
+
+  const OS_MAIN_OPTS = {
+    scrollbars: {
+      theme: 'os-theme-mdv',
+      autoHide: 'scroll',
+      autoHideDelay: 650,
+      clickScroll: true
+    }
+  };
+
+  const OS_SIDE_OPTS = {
+    scrollbars: {
+      theme: 'os-theme-mdv',
+      autoHide: 'leave',
+      autoHideDelay: 350,
+      clickScroll: true
+    }
+  };
+
+  const OS_BLOCK_OPTS = {
+    overflow: { x: 'scroll', y: 'hidden' },
+    scrollbars: {
+      theme: 'os-theme-mdv',
+      autoHide: 'leave',
+      autoHideDelay: 300,
+      clickScroll: true
+    }
+  };
+
+  function initHorizontalBlockScrollbars(scope) {
+    if (!OverlayScrollbars || !scope) return;
+    scope
+      .querySelectorAll('.mdv-code-card pre, .mdv-table-wrap, .mdv-mermaid-stage, .mdv-math-block')
+      .forEach((el) => {
+        if (!OverlayScrollbars.valid(OverlayScrollbars(el))) {
+          OverlayScrollbars(el, OS_BLOCK_OPTS);
+        } else {
+          OverlayScrollbars(el, OS_BLOCK_OPTS);
+        }
+      });
+  }
+
   let splitMode = 'none'; // 'none' | 'vertical' | 'horizontal'
   let focusedPaneIdx = 0;
   let syncScroll = false;
@@ -48,10 +95,15 @@
 
   const panes = [0, 1].map((idx) => {
     const section = document.querySelector(`.mdv-pane[data-pane-index="${idx}"]`);
+    const scrollerHost = section.querySelector('[data-pane-scroller]');
+    const osInstance = OverlayScrollbars ? OverlayScrollbars(scrollerHost, OS_MAIN_OPTS) : null;
+    const scrollerViewport = osInstance ? osInstance.elements().viewport : scrollerHost;
     return {
       idx,
       section,
-      scroller: section.querySelector('[data-pane-scroller]'),
+      scrollerHost,
+      osInstance,
+      scroller: scrollerViewport,
       article: section.querySelector('[data-pane-article]'),
       titleEl: section.querySelector('[data-pane-title]'),
       filePath: idx === 0 ? initCfg.currentFile || '' : '',
@@ -62,6 +114,20 @@
       carouselControllers: []
     };
   });
+
+  // Initialize OverlayScrollbars on Left Files Sidebar, Right TOC Sidebar, and Modal
+  const filesScrollEl = document.getElementById('mdv-files-scroll');
+  const tocScrollEl = document.getElementById('mdv-toc-scroll');
+  const modalScrollEl = document.getElementById('mdv-modal-scroll');
+  if (OverlayScrollbars) {
+    if (filesScrollEl) OverlayScrollbars(filesScrollEl, OS_SIDE_OPTS);
+    if (tocScrollEl) OverlayScrollbars(tocScrollEl, OS_SIDE_OPTS);
+    if (modalScrollEl) {
+      OverlayScrollbars(modalScrollEl, {
+        scrollbars: { theme: 'os-theme-mdv', autoHide: 'leave', autoHideDelay: 350, clickScroll: true }
+      });
+    }
+  }
 
   function activePane() {
     return panes[focusedPaneIdx] || panes[0];
@@ -1269,6 +1335,7 @@
 
     initCarouselsForPane(pane);
     await renderMermaidDiagrams(pane.article);
+    initHorizontalBlockScrollbars(pane.article);
     refreshHeadings(pane);
 
     if (paneIdx === focusedPaneIdx) {
@@ -1327,7 +1394,8 @@
 
   // Boot Pane 0 (and optional CLI initial Split Pane 1)
   initCarouselsForPane(panes[0]);
-  renderMermaidDiagrams(panes[0].article);
+  renderMermaidDiagrams(panes[0].article).then(() => initHorizontalBlockScrollbars(panes[0].article));
+  initHorizontalBlockScrollbars(panes[0].article);
   refreshHeadings(panes[0]);
   onPaneScroll(panes[0]);
   updateFileTreeMarkers();

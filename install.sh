@@ -49,7 +49,7 @@ else
   fi
 fi
 
-info "Instalando dependencias de renderizado (marked, mermaid, katex, highlight.js)..."
+info "Instalando dependencias de renderizado (marked, mermaid, katex, highlight.js, overlayscrollbars)..."
 if [[ -f "$TARGET_DIR/package-lock.json" ]]; then
   (cd "$TARGET_DIR" && npm ci --omit=dev --no-audit --no-fund --loglevel=error)
 else
