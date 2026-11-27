@@ -5,12 +5,14 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { spawn, execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { WebSocketServer } from 'ws';
 import { renderMarkdownDocument } from '../src/renderer.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR = path.resolve(__dirname, '..');
 const PUBLIC_DIR = path.join(ROOT_DIR, 'public');
 const NODE_MODULES_DIR = path.join(ROOT_DIR, 'node_modules');
+const PTY_BRIDGE_PATH = path.join(ROOT_DIR, 'src', 'pty_bridge.py');
 const CONFIG_FILE = path.join(process.env.HOME || '/tmp', '.config', 'mdv', 'config.json');
 
 function loadUserConfig() {
@@ -89,12 +91,12 @@ const MIME_TYPES = {
 };
 
 function printHelp() {
-  console.log(`mdv 1.4.1 — Visor moderno de Markdown con Split Views, explorador recursivo, Carousel, Mermaid, Vim y Live-Reload
+  console.log(`mdv 1.5.0 — Visor moderno de Markdown con Splits infinitos, Terminales WSL, Carousel, Mermaid, Vim y Live-Reload
 
 Uso:
   mdv                              Abre la carpeta actual y explora todos los .md en subcarpetas
   mdv <carpeta | archivo.md>       Abre una carpeta o archivo específico
-  mdv <archivo1.md> <archivo2.md>  Abre ambos archivos directamente en Split View vertical
+  mdv <archivo1.md> <archivo2.md>  Abre ambos archivos directamente en Split View
   cat archivo.md | mdv             Renderiza entrada estándar
 
 Opciones:
@@ -139,7 +141,7 @@ function parseArgs(argv) {
       process.exit(0);
     }
     if (arg === '-V' || arg === '--version') {
-      console.log('mdv 1.4.1');
+      console.log('mdv 1.5.0');
       process.exit(0);
     }
     if (arg === '--update') {
@@ -170,8 +172,7 @@ function parseArgs(argv) {
     else if ((arg === '-t' || arg === '--theme') && argv[i + 1]) {
       opts.theme = argv[++i];
       opts.themeExplicit = true;
-    }
-    else if ((arg === '-p' || arg === '--port') && argv[i + 1]) opts.port = Number(argv[++i]) || 0;
+    } else if ((arg === '-p' || arg === '--port') && argv[i + 1]) opts.port = Number(argv[++i]) || 0;
     else if (arg === '--stdin-file' && argv[i + 1]) opts.stdinFile = argv[++i];
     else if (!arg.startsWith('-')) {
       if (!opts.target) opts.target = arg;
@@ -283,11 +284,11 @@ function renderTreeNodesHtml(nodes, activeFilePath) {
       const isCurrent = node.fullPath === activeFilePath;
       return `
         <li class="mdv-file-item${isCurrent ? ' is-current' : ''}" data-file-path="${escapeHtmlAttr(node.fullPath)}" data-rel-path="${escapeHtmlAttr(node.relPath.toLowerCase())}">
-          <a href="/?file=${encodeURIComponent(node.fullPath)}" data-md-link title="${escapeHtmlAttr(node.relPath)} (Alt+Clic abrir en Split)">
+          <a href="/?file=${encodeURIComponent(node.fullPath)}" data-md-link title="${escapeHtmlAttr(node.relPath)} (Alt+Clic abrir en nuevo Split)">
             <svg viewBox="0 0 16 16" width="13" height="13" fill="currentColor" style="flex-shrink:0;opacity:0.72"><path d="M2 1.75C2 .784 2.784 0 3.75 0h6.586c.464 0 .909.184 1.237.513l2.914 2.914c.329.328.513.773.513 1.237v9.586A1.75 1.75 0 0 1 13.25 16h-9.5A1.75 1.75 0 0 1 2 14.25Zm1.75-.25a.25.25 0 0 0-.25.25v12.5c0 .138.112.25.25.25h9.5a.25.25 0 0 0 .25-.25V6h-2.75A1.75 1.75 0 0 1 9 4.25V1.5Zm6.75.062V4.25c0 .138.112.25.25.25h2.688Z"/></svg>
             <span class="mdv-file-label">${escapeHtmlAttr(node.name)}</span>
           </a>
-          <button type="button" class="mdv-open-split-btn" data-open-in-split="${escapeHtmlAttr(node.fullPath)}" title="Abrir en panel Split">
+          <button type="button" class="mdv-open-split-btn" data-open-in-split="${escapeHtmlAttr(node.fullPath)}" title="Abrir en nuevo Split">
             <svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor"><path d="M1.75 1h12.5c.966 0 1.75.784 1.75 1.75v10.5A1.75 1.75 0 0 1 14.25 15H1.75A1.75 1.75 0 0 1 0 13.25V2.75C0 1.784.784 1 1.75 1ZM1.5 2.75v10.5c0 .138.112.25.25.25h5.75v-11H1.75a.25.25 0 0 0-.25.25Zm7.25 10.75h5.5a.25.25 0 0 0 .25-.25V2.75a.25.25 0 0 0-.25-.25h-5.5Z"/></svg>
           </button>
         </li>`;
@@ -377,7 +378,6 @@ function launchWindow(url, appMode, maximized = true) {
     const args = [`--app=${url}`, '--no-first-run', '--no-default-browser-check'];
     const winProfile = getWindowsAppProfileDir();
     if (winProfile) {
-      // Dedicated profile guarantees --start-maximized is honored by Windows even when main Chrome/Edge is already open!
       args.push(`--user-data-dir=${winProfile}`);
     }
     if (maximized) {
@@ -432,6 +432,7 @@ function buildHtmlShell({
   title,
   defaultTheme
 }) {
+  const userCfg = loadUserConfig();
   const relDisplay = path.relative(workspaceDir, filePath).split(path.sep).join('/') || path.basename(filePath);
   const workspaceName = path.basename(workspaceDir) || workspaceDir;
   const { tree, files } = scanMarkdownWorkspace(workspaceDir);
@@ -454,8 +455,9 @@ function buildHtmlShell({
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>${escapeHtmlAttr(title || path.basename(filePath))} — mdv</title>
   <link rel="stylesheet" href="/vendor/overlayscrollbars/overlayscrollbars.min.css" />
+  <link rel="stylesheet" href="/vendor/xterm/xterm.css" />
   <link rel="stylesheet" href="/vendor/katex/katex.min.css" />
-  <link rel="stylesheet" href="/assets/styles.css?v=1.4.1" />
+  <link rel="stylesheet" href="/assets/styles.css?v=1.5.0" />
 </head>
 <body class="${hideFilesClass}">
   <header class="mdv-topbar">
@@ -472,20 +474,41 @@ function buildHtmlShell({
         <span id="mdv-reload-pill" class="mdv-reload-pill" hidden>Actualizado</span>
       </div>
     </div>
+
     <div class="mdv-topbar-right">
-      <div class="mdv-split-group" role="group" aria-label="Split View">
-        <button type="button" id="mdv-split-vertical" class="mdv-tool-btn" title="Split Right lado a lado (Ctrl+Alt+R)">
+      <!-- Markdown Splits -->
+      <div class="mdv-btn-pill-group" role="group" aria-label="Markdown Splits">
+        <button type="button" id="mdv-split-vertical" class="mdv-tool-btn" title="Nuevo Split Markdown a la derecha (Ctrl+Alt+R)">
           <svg viewBox="0 0 16 16" width="13" height="13" fill="currentColor"><path d="M1.75 1h12.5c.966 0 1.75.784 1.75 1.75v10.5A1.75 1.75 0 0 1 14.25 15H1.75A1.75 1.75 0 0 1 0 13.25V2.75C0 1.784.784 1 1.75 1ZM1.5 2.75v10.5c0 .138.112.25.25.25h5.5v-11h-5.5a.25.25 0 0 0-.25.25Zm7 10.75h5.75a.25.25 0 0 0 .25-.25V2.75a.25.25 0 0 0-.25-.25H8.5Z"/></svg>
-          <span>Split |</span>
+          <span>MD |</span>
         </button>
-        <button type="button" id="mdv-split-horizontal" class="mdv-tool-btn" title="Split Down arriba/abajo (Ctrl+Alt+D)">
+        <button type="button" id="mdv-split-horizontal" class="mdv-tool-btn" title="Nuevo Split Markdown abajo (Ctrl+Alt+D)">
           <svg viewBox="0 0 16 16" width="13" height="13" fill="currentColor"><path d="M1.75 1h12.5c.966 0 1.75.784 1.75 1.75v10.5A1.75 1.75 0 0 1 14.25 15H1.75A1.75 1.75 0 0 1 0 13.25V2.75C0 1.784.784 1 1.75 1ZM1.5 2.75v4.5h13v-4.5a.25.25 0 0 0-.25-.25H1.75a.25.25 0 0 0-.25.25Zm0 6v4.5c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25v-4.5Z"/></svg>
-          <span>Split —</span>
+          <span>MD —</span>
         </button>
       </div>
-      <button type="button" id="mdv-open-search" class="mdv-tool-btn" title="Buscar en panel activo (/)">
+
+      <!-- WSL Terminal Splits -->
+      <div class="mdv-btn-pill-group" role="group" aria-label="WSL Terminal Splits">
+        <button type="button" id="mdv-term-vertical" class="mdv-tool-btn mdv-term-btn" title="Abrir Terminal WSL a la derecha (Alt+Shift+R o Ctrl+Alt+T)">
+          <span class="mdv-term-glyph">&gt;_</span>
+          <span>|</span>
+        </button>
+        <button type="button" id="mdv-term-horizontal" class="mdv-tool-btn mdv-term-btn" title="Abrir Terminal WSL abajo (Alt+Shift+D o Ctrl+Alt+B)">
+          <span class="mdv-term-glyph">&gt;_</span>
+          <span>—</span>
+        </button>
+      </div>
+
+      <!-- Font Size Controls (A- / 100% / A+) -->
+      <div class="mdv-btn-pill-group" role="group" aria-label="Tamaño de letra">
+        <button type="button" id="mdv-font-dec" class="mdv-tool-btn mdv-font-btn" title="Achicar letra (-)">A−</button>
+        <button type="button" id="mdv-font-reset" class="mdv-tool-btn mdv-font-pct" title="Restablecer tamaño (0)">${userCfg.zoom || 100}%</button>
+        <button type="button" id="mdv-font-inc" class="mdv-tool-btn mdv-font-btn" title="Agrandar letra (+)">A+</button>
+      </div>
+
+      <button type="button" id="mdv-open-search" class="mdv-tool-btn" title="Buscar en documento (/)">
         <svg viewBox="0 0 16 16" width="13" height="13" fill="currentColor"><path d="M10.68 11.74a6 6 0 0 1-7.922-8.982 6 6 0 0 1 8.982 7.922l3.04 3.04a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215ZM11.5 7a4.499 4.499 0 1 0-8.997 0A4.499 4.499 0 0 0 11.5 7Z"/></svg>
-        <span>/</span>
       </button>
       <button type="button" id="mdv-toggle-wide" class="mdv-tool-btn" title="Alternar ancho de lectura (w)">Ancho</button>
       <select id="mdv-theme-select" class="mdv-theme-select" aria-label="Tema visual" title="Cambiar tema (c)">
@@ -518,45 +541,9 @@ function buildHtmlShell({
       </div>
     </aside>
 
-    <main id="mdv-panes-root" class="mdv-panes-root" data-split-mode="none">
-      <!-- Primary Pane (0) -->
-      <section class="mdv-pane is-focused" data-pane-index="0">
-        <div class="mdv-pane-bar">
-          <div class="mdv-pane-bar-left">
-            <span class="mdv-pane-dot"></span>
-            <span class="mdv-pane-title" data-pane-title>${escapeHtmlAttr(relDisplay)}</span>
-          </div>
-          <div class="mdv-pane-bar-right">
-            <button type="button" class="mdv-pane-btn" data-pane-sync title="Sincronizar scroll entre paneles (Espacio y)">Sync</button>
-            <button type="button" class="mdv-pane-btn" data-pane-swap title="Intercambiar paneles (Espacio x)">⇄</button>
-            <button type="button" class="mdv-pane-btn" data-pane-close="0" title="Cerrar este panel (q o Espacio q)">✕</button>
-          </div>
-        </div>
-        <div class="mdv-pane-scroller" data-pane-scroller="0" data-overlayscrollbars-initialize>
-          <article id="mdv-article" class="mdv-article" data-pane-article="0">${html}</article>
-        </div>
-      </section>
-
-      <!-- Draggable Split Divider -->
-      <div id="mdv-split-resizer" class="mdv-split-resizer" title="Arrastra para redimensionar · Doble clic 50/50" hidden></div>
-
-      <!-- Secondary Split Pane (1) -->
-      <section class="mdv-pane" data-pane-index="1" hidden>
-        <div class="mdv-pane-bar">
-          <div class="mdv-pane-bar-left">
-            <span class="mdv-pane-dot"></span>
-            <span class="mdv-pane-title" data-pane-title>—</span>
-          </div>
-          <div class="mdv-pane-bar-right">
-            <button type="button" class="mdv-pane-btn" data-pane-sync title="Sincronizar scroll entre paneles (Espacio y)">Sync</button>
-            <button type="button" class="mdv-pane-btn" data-pane-swap title="Intercambiar paneles (Espacio x)">⇄</button>
-            <button type="button" class="mdv-pane-btn" data-pane-close="1" title="Cerrar este panel (q o Espacio q)">✕</button>
-          </div>
-        </div>
-        <div class="mdv-pane-scroller" data-pane-scroller="1" data-overlayscrollbars-initialize>
-          <article class="mdv-article" data-pane-article="1"></article>
-        </div>
-      </section>
+    <!-- Recursive Split Tree Root -->
+    <main id="mdv-panes-root" class="mdv-panes-root" data-pane-count="1">
+      <div id="mdv-initial-html" hidden>${html}</div>
     </main>
 
     <aside class="mdv-sidebar-toc">
@@ -601,12 +588,15 @@ function buildHtmlShell({
       workspaceDir,
       dirMode: Boolean(dirMode),
       defaultTheme,
-      maximized: loadUserConfig().maximized !== false
+      defaultZoom: userCfg.zoom || 100,
+      maximized: userCfg.maximized !== false
     })};
   </script>
   <script src="/vendor/overlayscrollbars/overlayscrollbars.browser.es6.min.js"></script>
+  <script src="/vendor/xterm/xterm.js"></script>
+  <script src="/vendor/xterm/addon-fit.js"></script>
   <script src="/vendor/mermaid/mermaid.min.js"></script>
-  <script src="/assets/app.js?v=1.4.1"></script>
+  <script src="/assets/app.js?v=1.5.0"></script>
 </body>
 </html>`;
 }
@@ -675,14 +665,21 @@ async function main() {
     process.exit(0);
   }
 
-  // Multi-file watcher map for Split Views: tracks every open file's SHA-1 + fs.watch on its parent directory
   const watchedSignatures = new Map();
   const watchedDirs = new Map();
+  const activePtyChildren = new Set();
   let lastTreeCount = scanMarkdownWorkspace(workspaceDir).files.length;
   const sseClients = new Set();
   let hadClient = false;
   let shutdownTimer = null;
   let debounceTimer = null;
+
+  function killAllPtyChildren() {
+    for (const proc of activePtyChildren) {
+      try { proc.kill('SIGHUP'); } catch {}
+    }
+    activePtyChildren.clear();
+  }
 
   function broadcastReload(changedFile, reason = 'content') {
     const payload = JSON.stringify({ file: changedFile, reason, ts: Date.now() });
@@ -778,6 +775,7 @@ async function main() {
         if (hadClient && sseClients.size === 0 && !opts.keepAlive) {
           shutdownTimer = setTimeout(() => {
             if (sseClients.size === 0) {
+              killAllPtyChildren();
               if (opts.stdinFile) {
                 try { fs.unlinkSync(opts.stdinFile); } catch {}
               }
@@ -853,6 +851,15 @@ async function main() {
         path.join(NODE_MODULES_DIR, 'overlayscrollbars/browser/overlayscrollbars.browser.es6.min.js')
       );
     }
+    if (url.pathname === '/vendor/xterm/xterm.css') {
+      return serveStaticFile(res, path.join(NODE_MODULES_DIR, '@xterm/xterm/css/xterm.css'));
+    }
+    if (url.pathname === '/vendor/xterm/xterm.js') {
+      return serveStaticFile(res, path.join(NODE_MODULES_DIR, '@xterm/xterm/lib/xterm.js'));
+    }
+    if (url.pathname === '/vendor/xterm/addon-fit.js') {
+      return serveStaticFile(res, path.join(NODE_MODULES_DIR, '@xterm/addon-fit/lib/addon-fit.js'));
+    }
     if (url.pathname === '/vendor/mermaid/mermaid.min.js') {
       return serveStaticFile(res, path.join(NODE_MODULES_DIR, 'mermaid/dist/mermaid.min.js'));
     }
@@ -902,6 +909,70 @@ async function main() {
     res.writeHead(404);
     res.end('Not found');
   });
+
+  // WebSocket Server for real WSL PTY terminals (/ws/pty?cwd=...&cols=...&rows=...)
+  const wss = new WebSocketServer({ noServer: true });
+
+  server.on('upgrade', (req, socket, head) => {
+    const url = new URL(req.url || '/', 'http://127.0.0.1');
+    if (url.pathname !== '/ws/pty') {
+      socket.destroy();
+      return;
+    }
+    wss.handleUpgrade(req, socket, head, (ws) => {
+      const reqCwd = url.searchParams.get('cwd') || workspaceDir;
+      const safeCwd = fs.existsSync(reqCwd) && fs.statSync(reqCwd).isDirectory() ? reqCwd : workspaceDir;
+      const cols = Math.max(10, Number(url.searchParams.get('cols') || 90));
+      const rows = Math.max(4, Number(url.searchParams.get('rows') || 26));
+
+      const ptyProc = spawn('python3', [PTY_BRIDGE_PATH, safeCwd, String(cols), String(rows)], {
+        stdio: ['pipe', 'pipe', 'ignore'],
+        env: { ...process.env }
+      });
+      activePtyChildren.add(ptyProc);
+
+      ptyProc.stdout.on('data', (chunk) => {
+        if (ws.readyState === ws.OPEN) {
+          ws.send(chunk, { binary: true });
+        }
+      });
+
+      ptyProc.on('exit', (code) => {
+        activePtyChildren.delete(ptyProc);
+        if (ws.readyState === ws.OPEN) {
+          ws.send(JSON.stringify({ type: 'exit', code: code ?? 0 }));
+          ws.close();
+        }
+      });
+
+      ws.on('message', (raw, isBinary) => {
+        if (ptyProc.killed || !ptyProc.stdin.writable) return;
+        if (isBinary) {
+          const b64 = Buffer.from(raw).toString('base64');
+          ptyProc.stdin.write(JSON.stringify({ type: 'input', data: b64 }) + '\n');
+          return;
+        }
+        try {
+          const msg = JSON.parse(raw.toString('utf8'));
+          if (msg.type === 'input' && typeof msg.data === 'string') {
+            const b64 = Buffer.from(msg.data, 'utf8').toString('base64');
+            ptyProc.stdin.write(JSON.stringify({ type: 'input', data: b64 }) + '\n');
+          } else if (msg.type === 'resize') {
+            ptyProc.stdin.write(
+              JSON.stringify({ type: 'resize', cols: Number(msg.cols || 80), rows: Number(msg.rows || 24) }) + '\n'
+            );
+          }
+        } catch {}
+      });
+
+      ws.on('close', () => {
+        activePtyChildren.delete(ptyProc);
+        try { ptyProc.kill('SIGHUP'); } catch {}
+      });
+    });
+  });
+
+  process.on('exit', killAllPtyChildren);
 
   if (opts.serverChild && !opts.keepAlive) {
     setTimeout(() => {

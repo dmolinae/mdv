@@ -1529,3 +1529,135 @@ html, body {
   background: var(--bg-hover);
   color: var(--text-heading);
 }
+
+/* Topbar Pill Groups (Font A-/100%/A+, MD Splits, WSL Terminal Splits) & Infinite Recursive Split Tree */
+.mdv-btn-pill-group {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 8px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-elevated);
+  overflow: hidden;
+}
+
+.mdv-btn-pill-group .mdv-tool-btn {
+  border: none;
+  border-right: 1px solid var(--border-subtle);
+  border-radius: 0;
+  height: 30px;
+  padding: 0 8px;
+  background: transparent;
+}
+
+.mdv-btn-pill-group .mdv-tool-btn:last-child {
+  border-right: none;
+}
+
+.mdv-font-btn {
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.mdv-font-pct {
+  font-variant-numeric: tabular-nums;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  min-width: 44px;
+  justify-content: center;
+}
+
+.mdv-term-glyph {
+  font-family: "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+  font-weight: 700;
+  font-size: 0.76rem;
+  color: #10b981;
+}
+
+/* Infinite Recursive Split Branches */
+.mdv-split-branch {
+  display: flex;
+  flex: 1 1 50%;
+  min-width: 0;
+  min-height: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.mdv-split-branch[data-direction="vertical"] {
+  flex-direction: row;
+}
+
+.mdv-split-branch[data-direction="horizontal"] {
+  flex-direction: column;
+}
+
+.mdv-split-branch > .mdv-split-resizer {
+  flex: 0 0 5px;
+  background: var(--border-subtle);
+  cursor: col-resize;
+  transition: background 0.15s;
+  z-index: 15;
+}
+
+.mdv-split-branch[data-direction="horizontal"] > .mdv-split-resizer {
+  cursor: row-resize;
+}
+
+.mdv-split-branch > .mdv-split-resizer:hover,
+.mdv-split-branch > .mdv-split-resizer.is-dragging {
+  background: var(--accent);
+}
+
+/* Show pane bar whenever > 1 pane exists OR when pane is a WSL terminal */
+.mdv-panes-root:not([data-pane-count="1"]) .mdv-pane-bar,
+.mdv-pane[data-pane-kind="terminal"] .mdv-pane-bar {
+  display: flex;
+}
+
+.mdv-panes-root:not([data-pane-count="1"]) .mdv-pane-scroller [data-overlayscrollbars-viewport] {
+  padding: 26px 28px 84px;
+}
+
+.mdv-pane.is-zone-focused .mdv-pane-bar {
+  border-top-color: var(--accent);
+  background: color-mix(in srgb, var(--bg-elevated) 80%, var(--bg-surface));
+}
+
+.mdv-pane[data-pane-kind="terminal"].is-zone-focused .mdv-pane-bar {
+  border-top-color: #10b981;
+}
+
+.mdv-pane[data-pane-kind="terminal"].is-zone-focused .mdv-pane-dot {
+  background: #10b981;
+  box-shadow: 0 0 7px #10b981;
+}
+
+/* Terminal Host Container */
+.mdv-terminal-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  padding: 8px 10px 6px 12px;
+  background: var(--bg-code);
+  overflow: hidden;
+  position: relative;
+}
+
+.mdv-terminal-mount {
+  width: 100%;
+  height: 100%;
+}
+
+.mdv-terminal-mount .xterm {
+  height: 100%;
+}
+
+.mdv-terminal-mount .xterm-viewport::-webkit-scrollbar {
+  width: 6px;
+}
+
+.mdv-terminal-mount .xterm-viewport::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--text-muted) 35%, transparent);
+  border-radius: 999px;
+}

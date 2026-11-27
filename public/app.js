@@ -1,9 +1,100 @@
 (function () {
   const THEMES = ['tokyo', 'github-dark', 'catppuccin', 'light'];
 
+  const XTERM_THEMES = {
+    tokyo: {
+      background: '#131622',
+      foreground: '#d8dee9',
+      cursor: '#7aa2f7',
+      selectionBackground: 'rgba(122, 162, 247, 0.28)',
+      black: '#15161e',
+      red: '#f7768e',
+      green: '#9ece6a',
+      yellow: '#e0af68',
+      blue: '#7aa2f7',
+      magenta: '#bb9af7',
+      cyan: '#7dcfff',
+      white: '#a9b1d6',
+      brightBlack: '#414868',
+      brightRed: '#f7768e',
+      brightGreen: '#9ece6a',
+      brightYellow: '#e0af68',
+      brightBlue: '#7aa2f7',
+      brightMagenta: '#bb9af7',
+      brightCyan: '#7dcfff',
+      brightWhite: '#c0caf5'
+    },
+    'github-dark': {
+      background: '#12171e',
+      foreground: '#e6edf3',
+      cursor: '#58a6ff',
+      selectionBackground: 'rgba(88, 166, 255, 0.28)',
+      black: '#0d1117',
+      red: '#ff7b72',
+      green: '#3fb950',
+      yellow: '#d29922',
+      blue: '#58a6ff',
+      magenta: '#bc8cff',
+      cyan: '#39c5cf',
+      white: '#b1bac4',
+      brightBlack: '#6e7681',
+      brightRed: '#ffa198',
+      brightGreen: '#56d364',
+      brightYellow: '#e3b341',
+      brightBlue: '#79c0ff',
+      brightMagenta: '#d2a8ff',
+      brightCyan: '#56d4dd',
+      brightWhite: '#ffffff'
+    },
+    catppuccin: {
+      background: '#141420',
+      foreground: '#cdd6f4',
+      cursor: '#cba6f7',
+      selectionBackground: 'rgba(203, 166, 247, 0.28)',
+      black: '#45475a',
+      red: '#f38ba8',
+      green: '#a6e3a1',
+      yellow: '#f9e2af',
+      blue: '#89b4fa',
+      magenta: '#f5c2e7',
+      cyan: '#94e2d5',
+      white: '#bac2de',
+      brightBlack: '#585b70',
+      brightRed: '#f38ba8',
+      brightGreen: '#a6e3a1',
+      brightYellow: '#f9e2af',
+      brightBlue: '#89b4fa',
+      brightMagenta: '#f5c2e7',
+      brightCyan: '#94e2d5',
+      brightWhite: '#a6adc8'
+    },
+    light: {
+      background: '#f4f6f9',
+      foreground: '#1e293b',
+      cursor: '#2563eb',
+      selectionBackground: 'rgba(37, 99, 235, 0.2)',
+      black: '#0f172a',
+      red: '#dc2626',
+      green: '#15803d',
+      yellow: '#b45309',
+      blue: '#1d4ed8',
+      magenta: '#7e22ce',
+      cyan: '#0e7490',
+      white: '#e2e8f0',
+      brightBlack: '#64748b',
+      brightRed: '#ef4444',
+      brightGreen: '#16a34a',
+      brightYellow: '#d97706',
+      brightBlue: '#2563eb',
+      brightMagenta: '#9333ea',
+      brightCyan: '#0891b2',
+      brightWhite: '#0f172a'
+    }
+  };
+
   const sidebarFilesEl = document.querySelector('.mdv-sidebar-files');
   const panesRootEl = document.getElementById('mdv-panes-root');
-  const resizerEl = document.getElementById('mdv-split-resizer');
+  const initialHtmlHolder = document.getElementById('mdv-initial-html');
   const tocListEl = document.getElementById('mdv-toc-list');
   const fileListEl = document.getElementById('mdv-file-list');
   const fileNameEl = document.getElementById('mdv-filename');
@@ -15,6 +106,11 @@
   const btnWide = document.getElementById('mdv-toggle-wide');
   const btnSplitV = document.getElementById('mdv-split-vertical');
   const btnSplitH = document.getElementById('mdv-split-horizontal');
+  const btnTermV = document.getElementById('mdv-term-vertical');
+  const btnTermH = document.getElementById('mdv-term-horizontal');
+  const btnFontDec = document.getElementById('mdv-font-dec');
+  const btnFontReset = document.getElementById('mdv-font-reset');
+  const btnFontInc = document.getElementById('mdv-font-inc');
   const btnSearch = document.getElementById('mdv-open-search');
   const btnHelp = document.getElementById('mdv-open-help');
   const totalFilesEl = document.getElementById('mdv-total-files');
@@ -38,6 +134,9 @@
   const vimToastEl = document.getElementById('mdv-vim-toast');
 
   const initCfg = window.__MDV_INITIAL__ || {};
+  const initialHtml = initialHtmlHolder ? initialHtmlHolder.innerHTML : '';
+  initialHtmlHolder?.remove();
+
   const OSGlobal = window.OverlayScrollbarsGlobal;
   const OverlayScrollbars = OSGlobal?.OverlayScrollbars;
   if (OverlayScrollbars && OSGlobal?.ClickScrollPlugin) {
@@ -45,82 +144,28 @@
   }
 
   const OS_MAIN_OPTS = {
-    scrollbars: {
-      theme: 'os-theme-mdv',
-      autoHide: 'scroll',
-      autoHideDelay: 650,
-      clickScroll: true
-    }
+    scrollbars: { theme: 'os-theme-mdv', autoHide: 'scroll', autoHideDelay: 650, clickScroll: true }
   };
-
   const OS_SIDE_OPTS = {
-    scrollbars: {
-      theme: 'os-theme-mdv',
-      autoHide: 'leave',
-      autoHideDelay: 350,
-      clickScroll: true
-    }
+    scrollbars: { theme: 'os-theme-mdv', autoHide: 'leave', autoHideDelay: 350, clickScroll: true }
   };
-
   const OS_BLOCK_OPTS = {
     overflow: { x: 'scroll', y: 'hidden' },
-    scrollbars: {
-      theme: 'os-theme-mdv',
-      autoHide: 'leave',
-      autoHideDelay: 300,
-      clickScroll: true
-    }
+    scrollbars: { theme: 'os-theme-mdv', autoHide: 'leave', autoHideDelay: 300, clickScroll: true }
   };
 
   function initHorizontalBlockScrollbars(scope) {
     if (!OverlayScrollbars || !scope) return;
     scope
       .querySelectorAll('.mdv-code-card pre, .mdv-table-wrap, .mdv-mermaid-stage, .mdv-math-block')
-      .forEach((el) => {
-        OverlayScrollbars(el, OS_BLOCK_OPTS);
-      });
+      .forEach((el) => OverlayScrollbars(el, OS_BLOCK_OPTS));
   }
 
-  let splitMode = 'none'; // 'none' | 'vertical' | 'horizontal'
-  let focusedPaneIdx = 0;
-  let focusZone = 'pane'; // 'pane' | 'files'
-  let treeCursorEl = null; // Currently highlighted .mdv-file-item or .mdv-folder-summary in 'files' zone
-  let syncScroll = false;
-  let isSyncingScroll = false;
-  let splitRatio = 0.5;
-  let zoomPercent = Number(localStorage.getItem('mdv-zoom') || 100);
-  let reloadPillTimer = null;
-  let toastTimer = null;
-
-  const panes = [0, 1].map((idx) => {
-    const section = document.querySelector(`.mdv-pane[data-pane-index="${idx}"]`);
-    const scrollerHost = section.querySelector('[data-pane-scroller]');
-    const osInstance = OverlayScrollbars ? OverlayScrollbars(scrollerHost, OS_MAIN_OPTS) : null;
-    const scrollerViewport = osInstance ? osInstance.elements().viewport : scrollerHost;
-    return {
-      idx,
-      section,
-      scrollerHost,
-      osInstance,
-      scroller: scrollerViewport,
-      article: section.querySelector('[data-pane-article]'),
-      titleEl: section.querySelector('[data-pane-title]'),
-      filePath: idx === 0 ? initCfg.currentFile || '' : '',
-      relPath: idx === 0 ? initCfg.initialRelPath || '' : '',
-      toc: idx === 0 ? initCfg.initialToc || [] : [],
-      headings: [],
-      carouselState: new Map(),
-      carouselControllers: []
-    };
-  });
-
-  // Initialize OverlayScrollbars on Left Files Sidebar, Right TOC Sidebar, and Modal
   const filesScrollEl = document.getElementById('mdv-files-scroll');
   const tocScrollEl = document.getElementById('mdv-toc-scroll');
   const modalScrollEl = document.getElementById('mdv-modal-scroll');
-  let filesOsInstance = null;
   if (OverlayScrollbars) {
-    if (filesScrollEl) filesOsInstance = OverlayScrollbars(filesScrollEl, OS_SIDE_OPTS);
+    if (filesScrollEl) OverlayScrollbars(filesScrollEl, OS_SIDE_OPTS);
     if (tocScrollEl) OverlayScrollbars(tocScrollEl, OS_SIDE_OPTS);
     if (modalScrollEl) {
       OverlayScrollbars(modalScrollEl, {
@@ -129,22 +174,45 @@
     }
   }
 
+  // =========================================================================
+  // INFINITE RECURSIVE SPLIT TREE STATE
+  // =========================================================================
+  let nextNodeSeq = 1;
+  let rootTree = null; // PaneNode | BranchNode
+  const panesById = new Map(); // id -> PaneNode
+  let focusedPaneId = null;
+  let lastMarkdownPaneId = null;
+  let focusZone = 'pane'; // 'pane' | 'files'
+  let treeCursorEl = null;
+  let syncScroll = false;
+  let isSyncingScroll = false;
+  let zoomPercent = Number(localStorage.getItem('mdv-zoom') || initCfg.defaultZoom || 100);
+  let reloadPillTimer = null;
+  let toastTimer = null;
+
   function activePane() {
-    return panes[focusedPaneIdx] || panes[0];
+    return panesById.get(focusedPaneId) || panesById.values().next().value || null;
   }
 
-  // Theme & layout persistence
-  const savedTheme = localStorage.getItem('mdv-theme') || initCfg.defaultTheme || 'tokyo';
-  applyTheme(savedTheme, false);
-  applyZoom(zoomPercent, false);
-
-  if (localStorage.getItem('mdv-wide') === '1') {
-    document.body.classList.add('wide-mode');
-    btnWide?.classList.add('is-active');
+  function allMarkdownPanes() {
+    return Array.from(panesById.values()).filter((p) => p.kind === 'markdown');
   }
-  if (!initCfg.dirMode && localStorage.getItem('mdv-hide-files') === '1') {
-    document.body.classList.add('hide-files');
-    btnFiles?.classList.remove('is-active');
+
+  function allTerminalPanes() {
+    return Array.from(panesById.values()).filter((p) => p.kind === 'terminal');
+  }
+
+  function updatePaneCountAttr() {
+    panesRootEl.setAttribute('data-pane-count', String(panesById.size));
+    document.querySelectorAll('[data-pane-sync]').forEach((b) => b.classList.toggle('is-active', syncScroll));
+  }
+
+  function savePrefs(patch) {
+    fetch('/api/prefs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch)
+    }).catch(() => {});
   }
 
   function showToast(msg) {
@@ -166,35 +234,55 @@
     }, 1500);
   }
 
-  function applyTheme(theme, rerenderDiagrams) {
+  function currentThemeName() {
+    return document.documentElement.getAttribute('data-theme') || 'tokyo';
+  }
+
+  function applyTheme(theme, rerender) {
     document.documentElement.setAttribute('data-theme', theme);
     if (themeSelect) themeSelect.value = theme;
     localStorage.setItem('mdv-theme', theme);
-    if (rerenderDiagrams) {
-      fetch('/api/prefs', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ theme })
-      }).catch(() => {});
-      renderMermaidDiagrams(panes[0].article);
-      if (splitMode !== 'none') renderMermaidDiagrams(panes[1].article);
+
+    const xtermTheme = XTERM_THEMES[theme] || XTERM_THEMES.tokyo;
+    for (const tp of allTerminalPanes()) {
+      if (tp.term) tp.term.options.theme = xtermTheme;
+    }
+
+    if (rerender) {
+      savePrefs({ theme });
+      for (const mp of allMarkdownPanes()) {
+        renderMermaidDiagrams(mp.article);
+      }
     }
   }
 
   function cycleTheme() {
-    const cur = document.documentElement.getAttribute('data-theme') || 'tokyo';
+    const cur = currentThemeName();
     const next = THEMES[(THEMES.indexOf(cur) + 1) % THEMES.length];
     applyTheme(next, true);
     showToast(`Tema: ${next}`);
   }
 
   function applyZoom(pct, announce = true) {
-    zoomPercent = Math.min(160, Math.max(75, pct));
-    panes.forEach((p) => {
-      p.article.style.fontSize = `${zoomPercent}%`;
-    });
+    zoomPercent = Math.min(170, Math.max(70, Math.round(pct)));
+    if (btnFontReset) btnFontReset.textContent = `${zoomPercent}%`;
     localStorage.setItem('mdv-zoom', String(zoomPercent));
-    if (announce) showToast(`Zoom: ${zoomPercent}%`);
+
+    for (const mp of allMarkdownPanes()) {
+      mp.article.style.fontSize = `${zoomPercent}%`;
+    }
+    const termPx = Math.max(11, Math.min(24, Math.round((14 * zoomPercent) / 100)));
+    for (const tp of allTerminalPanes()) {
+      if (tp.term) {
+        tp.term.options.fontSize = termPx;
+        tp.fitTerminal?.();
+      }
+    }
+
+    if (announce) {
+      savePrefs({ zoom: zoomPercent });
+      showToast(`Letra: ${zoomPercent}%`);
+    }
   }
 
   function toggleFilesPanel() {
@@ -202,7 +290,7 @@
     btnFiles?.classList.toggle('is-active', !hidden);
     localStorage.setItem('mdv-hide-files', hidden ? '1' : '0');
     if (hidden && focusZone === 'files') {
-      setFocusZone('pane', focusedPaneIdx, false);
+      setFocusZone('pane', focusedPaneId, false);
     }
   }
 
@@ -218,7 +306,446 @@
     showToast(wide ? 'Ancho: expandido' : 'Ancho: lectura');
   }
 
-  // Focus Zone & Vim File Browser Cursor Management ('files' <-> 'pane')
+  // =========================================================================
+  // PANE FACTORIES (MARKDOWN PANE & WSL TERMINAL PANE)
+  // =========================================================================
+  function buildPaneHeaderHtml(id, kind, titleText) {
+    const iconHtml =
+      kind === 'terminal'
+        ? '<span class="mdv-term-glyph">&gt;_</span>'
+        : '<span class="mdv-pane-dot"></span>';
+    const syncBtn =
+      kind === 'markdown'
+        ? `<button type="button" class="mdv-pane-btn${syncScroll ? ' is-active' : ''}" data-pane-sync title="Sincronizar scroll Markdown (Espacio y)">Sync</button>`
+        : '';
+    return `
+      <div class="mdv-pane-bar">
+        <div class="mdv-pane-bar-left">
+          ${iconHtml}
+          <span class="mdv-pane-title" data-pane-title>${titleText}</span>
+        </div>
+        <div class="mdv-pane-bar-right">
+          ${syncBtn}
+          <button type="button" class="mdv-pane-btn" data-pane-action="md-right" data-target-pane="${id}" title="Split Markdown a la derecha (Ctrl+Alt+R)">+MD |</button>
+          <button type="button" class="mdv-pane-btn" data-pane-action="term-right" data-target-pane="${id}" title="Split Terminal WSL a la derecha (Alt+Shift+R)">&gt;_ |</button>
+          <button type="button" class="mdv-pane-btn" data-pane-action="term-down" data-target-pane="${id}" title="Split Terminal WSL abajo (Alt+Shift+D)">&gt;_ —</button>
+          <button type="button" class="mdv-pane-btn" data-pane-close="${id}" title="Cerrar este panel">✕</button>
+        </div>
+      </div>`;
+  }
+
+  function createMarkdownPane({ filePath = '', relPath = '', html = '', toc = [] } = {}) {
+    const id = `pane-${nextNodeSeq++}`;
+    const section = document.createElement('section');
+    section.className = 'mdv-pane';
+    section.setAttribute('data-pane-id', id);
+    section.setAttribute('data-pane-kind', 'markdown');
+    section.innerHTML = `
+      ${buildPaneHeaderHtml(id, 'markdown', relPath || filePath.split('/').pop() || 'Markdown')}
+      <div class="mdv-pane-scroller" data-overlayscrollbars-initialize>
+        <article class="mdv-article" style="font-size:${zoomPercent}%">${html}</article>
+      </div>`;
+
+    const scrollerHost = section.querySelector('.mdv-pane-scroller');
+    const osInstance = OverlayScrollbars ? OverlayScrollbars(scrollerHost, OS_MAIN_OPTS) : null;
+    const scroller = osInstance ? osInstance.elements().viewport : scrollerHost;
+    const article = section.querySelector('.mdv-article');
+    const titleEl = section.querySelector('[data-pane-title]');
+
+    const pane = {
+      type: 'pane',
+      id,
+      kind: 'markdown',
+      el: section,
+      section,
+      scrollerHost,
+      osInstance,
+      scroller,
+      article,
+      titleEl,
+      filePath,
+      relPath,
+      toc,
+      headings: [],
+      carouselState: new Map(),
+      carouselControllers: [],
+      dispose() {
+        try { osInstance?.destroy(); } catch {}
+      }
+    };
+
+    section.addEventListener('pointerdown', () => {
+      if (focusZone !== 'pane' || focusedPaneId !== id) {
+        setFocusZone('pane', id, false);
+      }
+    });
+
+    scroller.addEventListener('scroll', () => onMarkdownPaneScroll(pane), { passive: true });
+    panesById.set(id, pane);
+    lastMarkdownPaneId = id;
+    return pane;
+  }
+
+  function resolvePreferredCwd() {
+    const cur = activePane();
+    if (cur?.kind === 'markdown' && cur.filePath) {
+      const idx = cur.filePath.lastIndexOf('/');
+      if (idx > 0) return cur.filePath.slice(0, idx);
+    }
+    if (lastMarkdownPaneId && panesById.has(lastMarkdownPaneId)) {
+      const mp = panesById.get(lastMarkdownPaneId);
+      const idx = mp.filePath.lastIndexOf('/');
+      if (idx > 0) return mp.filePath.slice(0, idx);
+    }
+    return initCfg.workspaceDir || '';
+  }
+
+  function createTerminalPane({ cwd = '' } = {}) {
+    const id = `pane-${nextNodeSeq++}`;
+    const targetCwd = cwd || resolvePreferredCwd();
+    const shortDir = targetCwd.split('/').filter(Boolean).pop() || 'wsl';
+    const section = document.createElement('section');
+    section.className = 'mdv-pane';
+    section.setAttribute('data-pane-id', id);
+    section.setAttribute('data-pane-kind', 'terminal');
+    section.innerHTML = `
+      ${buildPaneHeaderHtml(id, 'terminal', `WSL (${shortDir})`)}
+      <div class="mdv-terminal-wrap">
+        <div class="mdv-terminal-mount"></div>
+      </div>`;
+
+    const wrapEl = section.querySelector('.mdv-terminal-wrap');
+    const mountEl = section.querySelector('.mdv-terminal-mount');
+    const titleEl = section.querySelector('[data-pane-title]');
+
+    const termPx = Math.max(11, Math.min(24, Math.round((14 * zoomPercent) / 100)));
+    const term = window.Terminal
+      ? new window.Terminal({
+          cursorBlink: true,
+          fontSize: termPx,
+          fontFamily: '"Cascadia Code", "JetBrains Mono", Consolas, ui-monospace, monospace',
+          lineHeight: 1.18,
+          scrollback: 5000,
+          allowProposedApi: true,
+          theme: XTERM_THEMES[currentThemeName()] || XTERM_THEMES.tokyo
+        })
+      : null;
+
+    const fitAddon = term && window.FitAddon ? new window.FitAddon.FitAddon() : null;
+    if (term && fitAddon) {
+      term.loadAddon(fitAddon);
+    }
+
+    let ws = null;
+    let resizeObserver = null;
+    let disposed = false;
+
+    function fitTerminal() {
+      if (disposed || !term || !fitAddon || !mountEl.isConnected) return;
+      if (mountEl.clientWidth < 20 || mountEl.clientHeight < 20) return;
+      try {
+        fitAddon.fit();
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+        }
+      } catch {}
+    }
+
+    const pane = {
+      type: 'pane',
+      id,
+      kind: 'terminal',
+      cwd: targetCwd,
+      el: section,
+      section,
+      mountEl,
+      titleEl,
+      term,
+      fitAddon,
+      fitTerminal,
+      boot() {
+        if (!term || term.element) return;
+        term.open(mountEl);
+
+        // Allow app-level spatial navigation & split shortcuts to pass out of xterm cleanly!
+        term.attachCustomKeyEventHandler((ev) => {
+          const isAltGraph = Boolean(ev.getModifierState && ev.getModifierState('AltGraph'));
+          const isCtrlAlt = (ev.ctrlKey && ev.altKey && !ev.metaKey) || (isAltGraph && !ev.metaKey);
+          if (isCtrlAlt && ['KeyR', 'KeyD', 'KeyT', 'KeyB'].includes(ev.code)) {
+            return false;
+          }
+          if (ev.altKey && ev.shiftKey && !ev.ctrlKey && ['KeyR', 'KeyD', 'KeyW'].includes(ev.code)) {
+            return false;
+          }
+          if (
+            ev.altKey &&
+            !ev.ctrlKey &&
+            !ev.shiftKey &&
+            !ev.metaKey &&
+            !isAltGraph &&
+            ['KeyH', 'KeyJ', 'KeyK', 'KeyL'].includes(ev.code)
+          ) {
+            return false;
+          }
+          // Ctrl+Shift+C / Ctrl+Shift+V copy-paste convenience in terminal
+          if (ev.ctrlKey && ev.shiftKey && ev.code === 'KeyC' && term.hasSelection()) {
+            navigator.clipboard.writeText(term.getSelection()).catch(() => {});
+            return false;
+          }
+          return true;
+        });
+
+        fitTerminal();
+        const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${proto}//${location.host}/ws/pty?cwd=${encodeURIComponent(targetCwd)}&cols=${term.cols}&rows=${term.rows}`;
+        ws = new WebSocket(wsUrl);
+        ws.binaryType = 'arraybuffer';
+
+        ws.onmessage = (ev) => {
+          if (ev.data instanceof ArrayBuffer) {
+            term.write(new Uint8Array(ev.data));
+          } else if (typeof ev.data === 'string') {
+            try {
+              const msg = JSON.parse(ev.data);
+              if (msg.type === 'exit') {
+                if (panesById.size > 1) {
+                  closePaneById(id);
+                } else {
+                  term.writeln('\r\n\x1b[90m[Sesión cerrada — cerrando ventana...]\x1b[0m');
+                  setTimeout(() => window.close(), 350);
+                }
+              }
+            } catch {}
+          }
+        };
+
+        term.onData((data) => {
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'input', data }));
+          }
+        });
+
+        term.onTitleChange((newTitle) => {
+          if (titleEl && newTitle) titleEl.textContent = newTitle;
+        });
+
+        resizeObserver = new ResizeObserver(() => {
+          requestAnimationFrame(() => fitTerminal());
+        });
+        resizeObserver.observe(wrapEl);
+      },
+      dispose() {
+        disposed = true;
+        try { resizeObserver?.disconnect(); } catch {}
+        try { ws?.close(); } catch {}
+        try { term?.dispose(); } catch {}
+      }
+    };
+
+    section.addEventListener('pointerdown', () => {
+      if (focusZone !== 'pane' || focusedPaneId !== id) {
+        setFocusZone('pane', id, false);
+      }
+    });
+
+    panesById.set(id, pane);
+    return pane;
+  }
+
+  // =========================================================================
+  // RECURSIVE BINARY TREE OPERATIONS (INFINITE SPLITS)
+  // =========================================================================
+  function applyBranchSizes(branch) {
+    const r = Math.min(0.86, Math.max(0.14, branch.ratio));
+    branch.ratio = r;
+    const pctA = (r * 100).toFixed(2);
+    const pctB = ((1 - r) * 100).toFixed(2);
+    branch.first.el.style.flex = `0 0 calc(${pctA}% - 2.5px)`;
+    branch.second.el.style.flex = `0 0 calc(${pctB}% - 2.5px)`;
+  }
+
+  function replaceTreeNode(current, targetId, replacement) {
+    if (!current) return replacement;
+    if (current.type === 'pane') {
+      return current.id === targetId ? replacement : current;
+    }
+    current.first = replaceTreeNode(current.first, targetId, replacement);
+    current.second = replaceTreeNode(current.second, targetId, replacement);
+    return current;
+  }
+
+  function findParentBranch(current, childNode) {
+    if (!current || current.type === 'pane') return null;
+    if (current.first === childNode || current.second === childNode) return current;
+    return findParentBranch(current.first, childNode) || findParentBranch(current.second, childNode);
+  }
+
+  function firstLeafPane(node) {
+    if (!node) return null;
+    if (node.type === 'pane') return node;
+    return firstLeafPane(node.first) || firstLeafPane(node.second);
+  }
+
+  async function splitPane(targetPaneId, direction = 'vertical', newKind = 'markdown', opts = {}) {
+    const targetPane = panesById.get(targetPaneId) || activePane();
+    if (!targetPane) return null;
+
+    let newPane;
+    if (newKind === 'terminal') {
+      newPane = createTerminalPane({ cwd: opts.cwd });
+    } else {
+      const sourceMd =
+        targetPane.kind === 'markdown'
+          ? targetPane
+          : (lastMarkdownPaneId && panesById.get(lastMarkdownPaneId)) || allMarkdownPanes()[0];
+      const fileToOpen = opts.filePath || sourceMd?.filePath || initCfg.currentFile;
+      newPane = createMarkdownPane({ filePath: fileToOpen, relPath: fileToOpen.split('/').pop() });
+    }
+
+    const branchEl = document.createElement('div');
+    branchEl.className = 'mdv-split-branch';
+    branchEl.setAttribute('data-direction', direction);
+
+    const resizerEl = document.createElement('div');
+    resizerEl.className = 'mdv-split-resizer';
+    resizerEl.title = 'Arrastra para redimensionar · Doble clic 50/50';
+
+    const branch = {
+      type: 'split',
+      id: `split-${nextNodeSeq++}`,
+      direction,
+      ratio: 0.5,
+      el: branchEl,
+      resizerEl,
+      first: targetPane,
+      second: newPane
+    };
+
+    // Swap DOM in-place so existing xterm/scrollbars in targetPane stay 100% live!
+    targetPane.el.replaceWith(branchEl);
+    branchEl.append(targetPane.el, resizerEl, newPane.el);
+    applyBranchSizes(branch);
+
+    resizerEl.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      resizerEl.setPointerCapture(e.pointerId);
+      resizerEl.classList.add('is-dragging');
+      const onMove = (ev) => {
+        const rect = branchEl.getBoundingClientRect();
+        if (branch.direction === 'vertical') {
+          branch.ratio = (ev.clientX - rect.left) / rect.width;
+        } else {
+          branch.ratio = (ev.clientY - rect.top) / rect.height;
+        }
+        applyBranchSizes(branch);
+      };
+      const onUp = () => {
+        resizerEl.classList.remove('is-dragging');
+        resizerEl.removeEventListener('pointermove', onMove);
+        resizerEl.removeEventListener('pointerup', onUp);
+      };
+      resizerEl.addEventListener('pointermove', onMove);
+      resizerEl.addEventListener('pointerup', onUp);
+    });
+    resizerEl.addEventListener('dblclick', () => {
+      branch.ratio = 0.5;
+      applyBranchSizes(branch);
+      showToast('Split 50 / 50');
+    });
+
+    rootTree = replaceTreeNode(rootTree, targetPane.id, branch);
+    updatePaneCountAttr();
+
+    if (newPane.kind === 'terminal') {
+      newPane.boot();
+      setFocusZone('pane', newPane.id, false);
+      showToast(direction === 'vertical' ? 'Terminal WSL (derecha)' : 'Terminal WSL (abajo)');
+    } else {
+      await loadDocumentInPane(newPane.id, newPane.filePath, { preserveScroll: false });
+      if (!opts.filePath && targetPane.kind === 'markdown') {
+        newPane.scroller.scrollTop = targetPane.scroller.scrollTop;
+      }
+      setFocusZone('pane', newPane.id, false);
+      showToast(direction === 'vertical' ? 'Split Right creado' : 'Split Down creado');
+    }
+    return newPane;
+  }
+
+  function closePaneById(paneId) {
+    const pane = panesById.get(paneId);
+    if (!pane) return;
+
+    if (panesById.size <= 1) {
+      pane.dispose?.();
+      window.close();
+      return;
+    }
+
+    const parentBranch = findParentBranch(rootTree, pane);
+    if (!parentBranch) return;
+    const sibling = parentBranch.first === pane ? parentBranch.second : parentBranch.first;
+
+    // Replace parentBranch DOM with surviving sibling subtree DOM in-place!
+    sibling.el.style.flex = parentBranch.el.style.flex || '1 1 100%';
+    parentBranch.el.replaceWith(sibling.el);
+
+    const grandParent = findParentBranch(rootTree, parentBranch);
+    if (!grandParent) {
+      rootTree = sibling;
+      sibling.el.style.flex = '1 1 100%';
+    } else {
+      if (grandParent.first === parentBranch) grandParent.first = sibling;
+      else grandParent.second = sibling;
+      applyBranchSizes(grandParent);
+    }
+
+    pane.dispose?.();
+    panesById.delete(paneId);
+    updatePaneCountAttr();
+
+    if (focusedPaneId === paneId) {
+      const nextTarget = firstLeafPane(sibling) || firstLeafPane(rootTree);
+      if (nextTarget) setFocusZone('pane', nextTarget.id, false);
+    } else {
+      updateFileTreeMarkers();
+    }
+    // Re-fit any terminals that just expanded
+    requestAnimationFrame(() => {
+      for (const tp of allTerminalPanes()) tp.fitTerminal?.();
+    });
+    showToast('Panel cerrado');
+  }
+
+  function closeOtherPanes(keepPaneId) {
+    const keep = panesById.get(keepPaneId);
+    if (!keep || panesById.size <= 1) return;
+    for (const [id, p] of panesById.entries()) {
+      if (id !== keepPaneId) {
+        p.dispose?.();
+        panesById.delete(id);
+      }
+    }
+    rootTree = keep;
+    keep.el.style.flex = '1 1 100%';
+    panesRootEl.innerHTML = '';
+    panesRootEl.appendChild(keep.el);
+    updatePaneCountAttr();
+    setFocusZone('pane', keep.id, false);
+    if (keep.kind === 'terminal') requestAnimationFrame(() => keep.fitTerminal?.());
+    showToast('Solo panel activo');
+  }
+
+  function equalizeAllBranches(node = rootTree) {
+    if (!node || node.type === 'pane') return;
+    node.ratio = 0.5;
+    applyBranchSizes(node);
+    equalizeAllBranches(node.first);
+    equalizeAllBranches(node.second);
+  }
+
+  // =========================================================================
+  // 2D GEOMETRIC SPATIAL FOCUS (Alt + h / j / k / l across infinite splits!)
+  // =========================================================================
   function getNavigableTreeItems() {
     if (!fileListEl) return [];
     const result = [];
@@ -277,15 +804,22 @@
     if (treeCursorEl.classList.contains('mdv-file-item')) {
       const targetPath = treeCursorEl.getAttribute('data-file-path');
       if (!targetPath) return;
-      if (openInSplit) {
-        await openSplit(splitMode === 'none' ? 'vertical' : splitMode, targetPath);
-        if (stayInFiles) setFocusZone('files', focusedPaneIdx, false);
-      } else {
-        await loadDocumentInPane(focusedPaneIdx, targetPath, { pushState: focusedPaneIdx === 0 });
-        if (!stayInFiles) {
-          setFocusZone('pane', focusedPaneIdx, false);
+      const curPane = activePane();
+      if (openInSplit || curPane?.kind === 'terminal') {
+        // If current focused pane is a terminal (or user asked for split), either load in existing markdown pane or split!
+        const existingMd = !openInSplit && lastMarkdownPaneId ? panesById.get(lastMarkdownPaneId) : null;
+        if (existingMd) {
+          await loadDocumentInPane(existingMd.id, targetPath, { pushState: true });
+          if (!stayInFiles) setFocusZone('pane', existingMd.id, false);
         } else {
-          // Re-bind treeCursorEl since tree HTML refreshed
+          await splitPane(curPane?.id, 'vertical', 'markdown', { filePath: targetPath });
+          if (stayInFiles) setFocusZone('files', focusedPaneId, false);
+        }
+      } else if (curPane) {
+        await loadDocumentInPane(curPane.id, targetPath, { pushState: true });
+        if (!stayInFiles) {
+          setFocusZone('pane', curPane.id, false);
+        } else {
           const refreshed = fileListEl?.querySelector(`.mdv-file-item[data-file-path="${CSS.escape(targetPath)}"]`);
           setTreeCursor(refreshed);
         }
@@ -293,7 +827,40 @@
     }
   }
 
-  function setFocusZone(zone, paneIdx = focusedPaneIdx, announce = true) {
+  function focusPaneById(id) {
+    const p = panesById.get(id) || activePane();
+    if (!p) return;
+    focusedPaneId = p.id;
+    if (p.kind === 'markdown') lastMarkdownPaneId = p.id;
+
+    for (const [pid, paneObj] of panesById.entries()) {
+      const isFoc = pid === p.id;
+      paneObj.section.classList.toggle('is-focused', isFoc);
+      paneObj.section.classList.toggle('is-zone-focused', focusZone === 'pane' && isFoc);
+      if (!isFoc && paneObj.kind === 'terminal') {
+        paneObj.term?.blur?.();
+      }
+    }
+
+    if (p.kind === 'terminal') {
+      if (vimPosEl && focusZone === 'pane') vimPosEl.textContent = 'TERM';
+      if (focusZone === 'pane') {
+        requestAnimationFrame(() => p.term?.focus());
+      }
+    } else {
+      if (document.activeElement?.closest('.xterm')) {
+        document.activeElement.blur();
+      }
+      if (fileNameEl) fileNameEl.textContent = p.relPath || p.filePath.split('/').pop() || '';
+      renderToc(p.toc);
+      refreshHeadings(p);
+      onMarkdownPaneScroll(p);
+      if (lastQuery) highlightQuery(lastQuery);
+    }
+    updateFileTreeMarkers();
+  }
+
+  function setFocusZone(zone, paneId = focusedPaneId, announce = true) {
     if (zone === 'files') {
       if (document.body.classList.contains('hide-files')) {
         document.body.classList.remove('hide-files');
@@ -301,234 +868,139 @@
         localStorage.setItem('mdv-hide-files', '0');
       }
       focusZone = 'files';
+      if (document.activeElement?.closest('.xterm')) {
+        document.activeElement.blur();
+      }
       sidebarFilesEl?.classList.add('is-zone-focused');
-      panes.forEach((p) => p.section.classList.remove('is-zone-focused'));
+      for (const p of panesById.values()) p.section.classList.remove('is-zone-focused');
       const items = getNavigableTreeItems();
       const validExisting = treeCursorEl && items.includes(treeCursorEl) ? treeCursorEl : null;
       const initialItem =
         validExisting || items.find((el) => el.classList?.contains('is-current')) || items[0] || null;
       setTreeCursor(initialItem);
       if (vimPosEl) vimPosEl.textContent = 'FILES';
-      if (announce) showToast('Foco: Archivos (j/k mover, o/Enter abrir)');
+      if (announce) showToast('Foco: Archivos');
     } else {
       focusZone = 'pane';
       sidebarFilesEl?.classList.remove('is-zone-focused');
       if (treeCursorEl) treeCursorEl.classList.remove('is-tree-cursor');
-      focusPane(paneIdx);
-      panes.forEach((p, i) => p.section.classList.toggle('is-zone-focused', i === focusedPaneIdx));
+      focusPaneById(paneId);
       if (announce) {
-        showToast(splitMode === 'none' ? 'Foco: Documento' : `Foco: Panel ${focusedPaneIdx + 1}`);
+        const p = activePane();
+        showToast(p?.kind === 'terminal' ? 'Foco: Terminal WSL' : `Foco: ${p?.relPath || 'Documento'}`);
       }
     }
   }
 
-  // Spatial Alt + h/j/k/l navigation across [Archivos] <-> [Pane 0] <-> [Pane 1]
   function handleSpatialFocusNavigation(dir) {
-    if (document.activeElement?.matches('input, textarea, select')) {
+    if (document.activeElement?.matches('input, select')) {
       document.activeElement.blur();
     }
-    if (dir === 'left') {
-      if (focusZone === 'pane') {
-        if (splitMode === 'vertical' && focusedPaneIdx === 1) {
-          setFocusZone('pane', 0);
-        } else {
-          setFocusZone('files');
-        }
-      }
-    } else if (dir === 'right') {
-      if (focusZone === 'files') {
-        setFocusZone('pane', splitMode === 'vertical' ? 0 : focusedPaneIdx);
-      } else if (focusZone === 'pane' && splitMode === 'vertical' && focusedPaneIdx === 0) {
-        setFocusZone('pane', 1);
-      }
-    } else if (dir === 'down') {
-      if (focusZone === 'pane' && splitMode === 'horizontal' && focusedPaneIdx === 0) {
-        setFocusZone('pane', 1);
-      } else if (focusZone === 'files') {
+
+    if (focusZone === 'files') {
+      if (dir === 'right') {
+        // Pick leftmost pane with best vertical overlap
+        const panes = Array.from(panesById.values());
+        panes.sort((a, b) => a.section.getBoundingClientRect().left - b.section.getBoundingClientRect().left);
+        if (panes[0]) setFocusZone('pane', panes[0].id);
+      } else if (dir === 'down') {
         moveTreeCursor(1);
-      }
-    } else if (dir === 'up') {
-      if (focusZone === 'pane' && splitMode === 'horizontal' && focusedPaneIdx === 1) {
-        setFocusZone('pane', 0);
-      } else if (focusZone === 'files') {
+      } else if (dir === 'up') {
         moveTreeCursor(-1);
       }
-    }
-  }
-
-  // Split View Management
-  function applySplitSizes(ratio = splitRatio) {
-    splitRatio = Math.min(0.82, Math.max(0.18, ratio));
-    if (splitMode === 'none') {
-      panes[0].section.style.flex = '1 1 100%';
-      panes[1].section.style.flex = '1 1 50%';
-    } else {
-      const pctA = (splitRatio * 100).toFixed(2);
-      const pctB = ((1 - splitRatio) * 100).toFixed(2);
-      panes[0].section.style.flex = `0 0 calc(${pctA}% - 3px)`;
-      panes[1].section.style.flex = `0 0 calc(${pctB}% - 3px)`;
-    }
-  }
-
-  function updateSplitButtonsUI() {
-    btnSplitV?.classList.toggle('is-active', splitMode === 'vertical');
-    btnSplitH?.classList.toggle('is-active', splitMode === 'horizontal');
-    document.querySelectorAll('[data-pane-sync]').forEach((b) => b.classList.toggle('is-active', syncScroll));
-  }
-
-  function focusPane(idx) {
-    if (splitMode === 'none') idx = 0;
-    focusedPaneIdx = idx;
-    panes.forEach((p, i) => {
-      p.section.classList.toggle('is-focused', i === idx);
-      p.section.classList.toggle('is-zone-focused', focusZone === 'pane' && i === idx);
-    });
-    const p = activePane();
-    if (fileNameEl) fileNameEl.textContent = p.relPath || p.filePath.split('/').pop() || '';
-    renderToc(p.toc);
-    refreshHeadings(p);
-    onPaneScroll(p);
-    updateFileTreeMarkers();
-    if (lastQuery) highlightQuery(lastQuery);
-  }
-
-  async function openSplit(direction = 'vertical', targetFile = null) {
-    const wasNone = splitMode === 'none';
-    if (!wasNone && splitMode === direction && !targetFile) {
-      closePane(1);
       return;
     }
-    splitMode = direction;
-    panesRootEl.setAttribute('data-split-mode', direction);
-    panes[1].section.hidden = false;
-    if (resizerEl) resizerEl.hidden = false;
-    applySplitSizes(wasNone ? 0.5 : splitRatio);
-    updateSplitButtonsUI();
 
-    const fileForPane1 = targetFile || panes[1].filePath || panes[0].filePath;
-    await loadDocumentInPane(1, fileForPane1, { preserveScroll: !targetFile && Boolean(panes[1].filePath) });
-    if (wasNone && !targetFile) {
-      panes[1].scroller.scrollTop = panes[0].scroller.scrollTop;
+    const cur = activePane();
+    if (!cur) return;
+    const curRect = cur.section.getBoundingClientRect();
+    let bestPane = null;
+    let bestDist = Infinity;
+    let bestOverlap = -1;
+
+    for (const cand of panesById.values()) {
+      if (cand.id === cur.id) continue;
+      const r = cand.section.getBoundingClientRect();
+      if (r.width < 10 || r.height < 10) continue;
+
+      if (dir === 'left' && r.right <= curRect.left + 10) {
+        const overlap = Math.min(r.bottom, curRect.bottom) - Math.max(r.top, curRect.top);
+        const dist = Math.max(0, curRect.left - r.right);
+        if (overlap > 12 && (dist < bestDist - 4 || (Math.abs(dist - bestDist) <= 4 && overlap > bestOverlap))) {
+          bestDist = dist;
+          bestOverlap = overlap;
+          bestPane = cand;
+        }
+      } else if (dir === 'right' && r.left >= curRect.right - 10) {
+        const overlap = Math.min(r.bottom, curRect.bottom) - Math.max(r.top, curRect.top);
+        const dist = Math.max(0, r.left - curRect.right);
+        if (overlap > 12 && (dist < bestDist - 4 || (Math.abs(dist - bestDist) <= 4 && overlap > bestOverlap))) {
+          bestDist = dist;
+          bestOverlap = overlap;
+          bestPane = cand;
+        }
+      } else if (dir === 'up' && r.bottom <= curRect.top + 10) {
+        const overlap = Math.min(r.right, curRect.right) - Math.max(r.left, curRect.left);
+        const dist = Math.max(0, curRect.top - r.bottom);
+        if (overlap > 12 && (dist < bestDist - 4 || (Math.abs(dist - bestDist) <= 4 && overlap > bestOverlap))) {
+          bestDist = dist;
+          bestOverlap = overlap;
+          bestPane = cand;
+        }
+      } else if (dir === 'down' && r.top >= curRect.bottom - 10) {
+        const overlap = Math.min(r.right, curRect.right) - Math.max(r.left, curRect.left);
+        const dist = Math.max(0, r.top - curRect.bottom);
+        if (overlap > 12 && (dist < bestDist - 4 || (Math.abs(dist - bestDist) <= 4 && overlap > bestOverlap))) {
+          bestDist = dist;
+          bestOverlap = overlap;
+          bestPane = cand;
+        }
+      }
     }
-    setFocusZone('pane', 1, false);
-    showToast(direction === 'vertical' ? 'Split Right activo' : 'Split Down activo');
-  }
 
-  function closePane(idxToClose) {
-    if (splitMode === 'none') {
-      window.close();
-      return;
+    if (bestPane) {
+      setFocusZone('pane', bestPane.id);
+    } else if (dir === 'left') {
+      // No pane further left -> enter Left File Browser!
+      setFocusZone('files');
     }
-    if (idxToClose === 0) {
-      copyPaneState(panes[1], panes[0]);
-    }
-    splitMode = 'none';
-    syncScroll = false;
-    panesRootEl.setAttribute('data-split-mode', 'none');
-    panes[1].section.hidden = true;
-    if (resizerEl) resizerEl.hidden = true;
-    applySplitSizes(0.5);
-    updateSplitButtonsUI();
-    setFocusZone('pane', 0, false);
-    showToast('Split cerrado');
-  }
-
-  function copyPaneState(src, dst) {
-    const srcScroll = src.scroller.scrollTop;
-    dst.filePath = src.filePath;
-    dst.relPath = src.relPath;
-    dst.toc = [...src.toc];
-    dst.article.innerHTML = src.article.innerHTML;
-    if (dst.titleEl) dst.titleEl.textContent = dst.relPath;
-    dst.carouselState = new Map(src.carouselState);
-    initCarouselsForPane(dst);
-    initHorizontalBlockScrollbars(dst.article);
-    refreshHeadings(dst);
-    dst.scroller.scrollTop = srcScroll;
-  }
-
-  function swapPanes() {
-    if (splitMode === 'none') return;
-    const scroll0 = panes[0].scroller.scrollTop;
-    const scroll1 = panes[1].scroller.scrollTop;
-    const tmp = {
-      filePath: panes[0].filePath,
-      relPath: panes[0].relPath,
-      toc: [...panes[0].toc],
-      html: panes[0].article.innerHTML,
-      carouselState: new Map(panes[0].carouselState)
-    };
-    copyPaneState(panes[1], panes[0]);
-    panes[1].filePath = tmp.filePath;
-    panes[1].relPath = tmp.relPath;
-    panes[1].toc = tmp.toc;
-    panes[1].article.innerHTML = tmp.html;
-    if (panes[1].titleEl) panes[1].titleEl.textContent = tmp.relPath;
-    panes[1].carouselState = tmp.carouselState;
-    initCarouselsForPane(panes[1]);
-    initHorizontalBlockScrollbars(panes[1].article);
-    refreshHeadings(panes[1]);
-    panes[0].scroller.scrollTop = scroll1;
-    panes[1].scroller.scrollTop = scroll0;
-    focusPane(focusedPaneIdx);
-    showToast('Paneles intercambiados');
   }
 
   function toggleSyncScroll() {
-    if (splitMode === 'none') return;
     syncScroll = !syncScroll;
-    updateSplitButtonsUI();
+    updatePaneCountAttr();
     showToast(syncScroll ? 'Scroll sincronizado: ON' : 'Scroll sincronizado: OFF');
   }
 
-  // Draggable Resizer
-  resizerEl?.addEventListener('pointerdown', (e) => {
-    e.preventDefault();
-    resizerEl.setPointerCapture(e.pointerId);
-    resizerEl.classList.add('is-dragging');
-    const onMove = (ev) => {
-      const rect = panesRootEl.getBoundingClientRect();
-      if (splitMode === 'vertical') {
-        applySplitSizes((ev.clientX - rect.left) / rect.width);
-      } else if (splitMode === 'horizontal') {
-        applySplitSizes((ev.clientY - rect.top) / rect.height);
-      }
-    };
-    const onUp = () => {
-      resizerEl.classList.remove('is-dragging');
-      resizerEl.removeEventListener('pointermove', onMove);
-      resizerEl.removeEventListener('pointerup', onUp);
-    };
-    resizerEl.addEventListener('pointermove', onMove);
-    resizerEl.addEventListener('pointerup', onUp);
-  });
-  resizerEl?.addEventListener('dblclick', () => {
-    applySplitSizes(0.5);
-    showToast('Paneles 50 / 50');
-  });
+  // Topbar event listeners
+  const savedTheme = localStorage.getItem('mdv-theme') || initCfg.defaultTheme || 'tokyo';
+  applyTheme(savedTheme, false);
 
-  // Focus zones on pointer interaction
-  panes.forEach((p) => {
-    p.section.addEventListener('pointerdown', () => {
-      if (focusZone !== 'pane' || (splitMode !== 'none' && focusedPaneIdx !== p.idx)) {
-        setFocusZone('pane', p.idx, false);
-      }
-    });
-  });
+  if (localStorage.getItem('mdv-wide') === '1') {
+    document.body.classList.add('wide-mode');
+    btnWide?.classList.add('is-active');
+  }
+  if (!initCfg.dirMode && localStorage.getItem('mdv-hide-files') === '1') {
+    document.body.classList.add('hide-files');
+    btnFiles?.classList.remove('is-active');
+  }
 
   sidebarFilesEl?.addEventListener('pointerdown', (e) => {
     if (e.target.closest('input, button')) return;
-    if (focusZone !== 'files') {
-      setFocusZone('files', focusedPaneIdx, false);
-    }
+    if (focusZone !== 'files') setFocusZone('files', focusedPaneId, false);
   });
 
   themeSelect?.addEventListener('change', (e) => applyTheme(e.target.value, true));
   btnFiles?.addEventListener('click', toggleFilesPanel);
   btnToc?.addEventListener('click', toggleTocPanel);
   btnWide?.addEventListener('click', toggleWideMode);
-  btnSplitV?.addEventListener('click', () => openSplit('vertical'));
-  btnSplitH?.addEventListener('click', () => openSplit('horizontal'));
+  btnSplitV?.addEventListener('click', () => splitPane(focusedPaneId, 'vertical', 'markdown'));
+  btnSplitH?.addEventListener('click', () => splitPane(focusedPaneId, 'horizontal', 'markdown'));
+  btnTermV?.addEventListener('click', () => splitPane(focusedPaneId, 'vertical', 'terminal'));
+  btnTermH?.addEventListener('click', () => splitPane(focusedPaneId, 'horizontal', 'terminal'));
+  btnFontDec?.addEventListener('click', () => applyZoom(zoomPercent - 10));
+  btnFontReset?.addEventListener('click', () => applyZoom(100));
+  btnFontInc?.addEventListener('click', () => applyZoom(zoomPercent + 10));
   btnSearch?.addEventListener('click', () => openSearchBar());
   btnHelp?.addEventListener('click', () => toggleHelpModal());
 
@@ -569,28 +1041,36 @@
       fileFilterEl.value = '';
       applyFileTreeFilter('');
       fileFilterEl.blur();
-      setFocusZone('files', focusedPaneIdx, false);
+      setFocusZone('files', focusedPaneId, false);
     } else if (e.key === 'ArrowDown') {
       e.preventDefault();
       fileFilterEl.blur();
-      setFocusZone('files', focusedPaneIdx, false);
+      setFocusZone('files', focusedPaneId, false);
     } else if (e.key === 'Enter') {
       e.preventDefault();
       const firstVisible = fileListEl?.querySelector('.mdv-file-item:not([hidden])');
       const targetPath = firstVisible?.getAttribute('data-file-path');
       if (targetPath) {
         fileFilterEl.blur();
-        if (e.altKey || e.shiftKey) openSplit(splitMode === 'none' ? 'vertical' : splitMode, targetPath);
-        else {
-          loadDocumentInPane(focusedPaneIdx, targetPath, { pushState: focusedPaneIdx === 0 });
-          setFocusZone('pane', focusedPaneIdx, false);
+        if (e.altKey || e.shiftKey) {
+          splitPane(focusedPaneId, 'vertical', 'markdown', { filePath: targetPath });
+        } else {
+          const cur = activePane();
+          const mdTarget = cur?.kind === 'markdown' ? cur : allMarkdownPanes()[0];
+          if (mdTarget) {
+            loadDocumentInPane(mdTarget.id, targetPath, { pushState: true });
+            setFocusZone('pane', mdTarget.id, false);
+          } else {
+            splitPane(focusedPaneId, 'vertical', 'markdown', { filePath: targetPath });
+          }
         }
       }
     }
   });
 
-  // Per-pane Carousels
+  // Carousels & Mermaid
   function initCarouselsForPane(pane) {
+    if (pane.kind !== 'markdown') return;
     pane.carouselControllers.length = 0;
     pane.article.querySelectorAll('[data-carousel]').forEach((carousel, idx) => {
       const id = carousel.getAttribute('data-carousel-id') || String(idx);
@@ -657,6 +1137,7 @@
   }
 
   function findVisibleCarouselInPane(pane) {
+    if (pane?.kind !== 'markdown') return null;
     const scrollerRect = pane.scroller.getBoundingClientRect();
     let best = null;
     let bestOverlap = 0;
@@ -671,10 +1152,9 @@
     return best;
   }
 
-  // Mermaid Diagrams
   async function renderMermaidDiagrams(scope) {
     if (!window.mermaid || !scope) return;
-    const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+    const isLight = currentThemeName() === 'light';
     window.mermaid.initialize({
       startOnLoad: false,
       theme: isLight ? 'default' : 'dark',
@@ -702,20 +1182,20 @@
     }
   }
 
-  // In-document Search in Focused Pane (/, n, N)
+  // Search in Focused Markdown Pane
   let searchHits = [];
   let activeHitIdx = -1;
   let lastQuery = '';
 
   function clearSearchHighlights() {
-    panes.forEach((p) => {
-      p.article.querySelectorAll('mark.mdv-search-hit').forEach((mark) => {
+    for (const mp of allMarkdownPanes()) {
+      mp.article.querySelectorAll('mark.mdv-search-hit').forEach((mark) => {
         const parent = mark.parentNode;
         if (!parent) return;
         parent.replaceChild(document.createTextNode(mark.textContent || ''), mark);
         parent.normalize();
       });
-    });
+    }
     searchHits = [];
     activeHitIdx = -1;
     if (searchCountEl) searchCountEl.textContent = '0 / 0';
@@ -724,9 +1204,10 @@
   function highlightQuery(query) {
     clearSearchHighlights();
     lastQuery = query;
-    if (!query) return;
+    const pane = activePane();
+    if (!query || pane?.kind !== 'markdown') return;
 
-    const targetArticle = activePane().article;
+    const targetArticle = pane.article;
     const lowerQ = query.toLowerCase();
     const walker = document.createTreeWalker(targetArticle, NodeFilter.SHOW_TEXT, {
       acceptNode(node) {
@@ -764,7 +1245,7 @@
     }
 
     if (searchHits.length > 0) {
-      const scrollerTop = activePane().scroller.getBoundingClientRect().top;
+      const scrollerTop = pane.scroller.getBoundingClientRect().top;
       const firstBelow = searchHits.findIndex((m) => m.getBoundingClientRect().top >= scrollerTop + 10);
       focusSearchHit(firstBelow >= 0 ? firstBelow : 0);
     } else if (searchCountEl) {
@@ -820,7 +1301,6 @@
   searchPrevBtn?.addEventListener('click', () => focusSearchHit(activeHitIdx - 1));
   searchCloseBtn?.addEventListener('click', () => closeSearchBar(true));
 
-  // ? Cheatsheet Modal
   function toggleHelpModal() {
     if (!modalEl || !modalBodyEl) return;
     if (!modalEl.hidden && modalBodyEl.querySelector('[data-help-sheet]')) {
@@ -830,59 +1310,65 @@
     modalBodyEl.innerHTML = `
       <div data-help-sheet>
         <h3 class="mdv-help-title">
-          <span>Atajos Vim, Navegador de Archivos y Split Views</span>
+          <span>Atajos Vim, Splits Infinitos y Terminales WSL</span>
           <span class="mdv-kbd">Esc / ?</span>
         </h3>
         <div class="mdv-help-grid">
           <div class="mdv-help-section">
-            <h4>Foco y Navegador de Archivos</h4>
-            <div class="mdv-help-row"><span>Cambiar entre Archivos y Paneles</span><span><kbd class="mdv-kbd">Alt + h / j / k / l</kbd></span></div>
-            <div class="mdv-help-row"><span>Moverse en árbol de archivos</span><span><kbd class="mdv-kbd">j</kbd> / <kbd class="mdv-kbd">k</kbd></span></div>
+            <h4>Splits Infinitos y Terminales WSL</h4>
+            <div class="mdv-help-row"><span>Split Markdown Right / Down</span><span><kbd class="mdv-kbd">Ctrl+Alt+R</kbd> / <kbd class="mdv-kbd">Ctrl+Alt+D</kbd></span></div>
+            <div class="mdv-help-row"><span>Split Terminal WSL Right</span><span><kbd class="mdv-kbd">Alt+Shift+R</kbd> o <kbd class="mdv-kbd">Ctrl+Alt+T</kbd></span></div>
+            <div class="mdv-help-row"><span>Split Terminal WSL Down</span><span><kbd class="mdv-kbd">Alt+Shift+D</kbd> o <kbd class="mdv-kbd">Ctrl+Alt+B</kbd></span></div>
+            <div class="mdv-help-row"><span>Mover foco (Archivos / MD / Term)</span><span><kbd class="mdv-kbd">Alt + h / j / k / l</kbd></span></div>
+            <div class="mdv-help-row"><span>Cerrar cualquier panel activo</span><span><kbd class="mdv-kbd">Alt+Shift+W</kbd> (o <kbd class="mdv-kbd">q</kbd> en MD)</span></div>
+            <div class="mdv-help-row"><span>Igualar todos 50:50 / Solo actual</span><span><kbd class="mdv-kbd">Espacio =</kbd> / <kbd class="mdv-kbd">Espacio o</kbd></span></div>
+          </div>
+          <div class="mdv-help-section">
+            <h4>Navegador de Archivos</h4>
+            <div class="mdv-help-row"><span>Entrar / salir del árbol</span><span><kbd class="mdv-kbd">Alt + h</kbd> / <kbd class="mdv-kbd">Alt + l</kbd></span></div>
+            <div class="mdv-help-row"><span>Mover cursor arriba / abajo</span><span><kbd class="mdv-kbd">j</kbd> / <kbd class="mdv-kbd">k</kbd></span></div>
             <div class="mdv-help-row"><span>Abrir archivo / carpeta</span><span><kbd class="mdv-kbd">o</kbd> o <kbd class="mdv-kbd">Enter</kbd></span></div>
-            <div class="mdv-help-row"><span>Previsualizar sin salir del árbol</span><span><kbd class="mdv-kbd">O</kbd></span></div>
+            <div class="mdv-help-row"><span>Preview sin salir / Abrir Split</span><span><kbd class="mdv-kbd">O</kbd> / <kbd class="mdv-kbd">v</kbd></span></div>
             <div class="mdv-help-row"><span>Expandir / cerrar carpeta</span><span><kbd class="mdv-kbd">l</kbd> / <kbd class="mdv-kbd">h</kbd></span></div>
-            <div class="mdv-help-row"><span>Filtro rápido de archivos</span><span><kbd class="mdv-kbd">Ctrl+P</kbd></span></div>
+            <div class="mdv-help-row"><span>Filtro rápido</span><span><kbd class="mdv-kbd">Ctrl+P</kbd></span></div>
           </div>
           <div class="mdv-help-section">
-            <h4>Split Views</h4>
-            <div class="mdv-help-row"><span>Split Right / Split Down</span><span><kbd class="mdv-kbd">Ctrl+Alt+R</kbd> / <kbd class="mdv-kbd">Ctrl+Alt+D</kbd></span></div>
-            <div class="mdv-help-row"><span>Alternativa Vim Split</span><span><kbd class="mdv-kbd">Espacio v</kbd> / <kbd class="mdv-kbd">Espacio s</kbd></span></div>
-            <div class="mdv-help-row"><span>Intercambiar / Igualar 50:50</span><span><kbd class="mdv-kbd">Espacio x</kbd> / <kbd class="mdv-kbd">Espacio =</kbd></span></div>
-            <div class="mdv-help-row"><span>Sincronizar scroll</span><span><kbd class="mdv-kbd">Espacio y</kbd></span></div>
-            <div class="mdv-help-row"><span>Cerrar panel / Solo este panel</span><span><kbd class="mdv-kbd">q</kbd> / <kbd class="mdv-kbd">Espacio o</kbd></span></div>
-          </div>
-          <div class="mdv-help-section">
-            <h4>Lectura y Componentes</h4>
+            <h4>Lectura y Letra</h4>
+            <div class="mdv-help-row"><span>Letra A+ / A− / 100%</span><span><kbd class="mdv-kbd">+</kbd> · <kbd class="mdv-kbd">-</kbd> · <kbd class="mdv-kbd">0</kbd></span></div>
             <div class="mdv-help-row"><span>Bajar / Subir · Media pág.</span><span><kbd class="mdv-kbd">j</kbd>/<kbd class="mdv-kbd">k</kbd> · <kbd class="mdv-kbd">d</kbd>/<kbd class="mdv-kbd">u</kbd></span></div>
             <div class="mdv-help-row"><span>Inicio / Final · Secciones</span><span><kbd class="mdv-kbd">gg</kbd>/<kbd class="mdv-kbd">G</kbd> · <kbd class="mdv-kbd">]]</kbd>/<kbd class="mdv-kbd">[[</kbd></span></div>
             <div class="mdv-help-row"><span>Carrusel anterior / siguiente</span><span><kbd class="mdv-kbd">h</kbd> / <kbd class="mdv-kbd">l</kbd></span></div>
             <div class="mdv-help-row"><span>Buscar / Siguiente / Anterior</span><span><kbd class="mdv-kbd">/</kbd> · <kbd class="mdv-kbd">n</kbd> · <kbd class="mdv-kbd">N</kbd></span></div>
-            <div class="mdv-help-row"><span>Índice / Archivos / Tema</span><span><kbd class="mdv-kbd">t</kbd> · <kbd class="mdv-kbd">e</kbd> · <kbd class="mdv-kbd">c</kbd></span></div>
           </div>
         </div>
       </div>`;
     modalEl.hidden = false;
   }
 
-  // Delegated clicks
+  // Delegated Clicks
   document.addEventListener('click', async (e) => {
     const splitOpenBtn = e.target.closest('[data-open-in-split]');
     if (splitOpenBtn) {
       e.preventDefault();
       e.stopPropagation();
       const file = splitOpenBtn.getAttribute('data-open-in-split');
-      if (file) await openSplit(splitMode === 'none' ? 'vertical' : splitMode, file);
+      if (file) await splitPane(focusedPaneId, 'vertical', 'markdown', { filePath: file });
+      return;
+    }
+
+    const paneActionBtn = e.target.closest('[data-pane-action]');
+    if (paneActionBtn) {
+      const action = paneActionBtn.getAttribute('data-pane-action');
+      const pid = paneActionBtn.getAttribute('data-target-pane') || focusedPaneId;
+      if (action === 'md-right') await splitPane(pid, 'vertical', 'markdown');
+      else if (action === 'term-right') await splitPane(pid, 'vertical', 'terminal');
+      else if (action === 'term-down') await splitPane(pid, 'horizontal', 'terminal');
       return;
     }
 
     const paneCloseBtn = e.target.closest('[data-pane-close]');
     if (paneCloseBtn) {
-      closePane(Number(paneCloseBtn.getAttribute('data-pane-close') || 1));
-      return;
-    }
-
-    if (e.target.closest('[data-pane-swap]')) {
-      swapPanes();
+      closePaneById(paneCloseBtn.getAttribute('data-pane-close'));
       return;
     }
 
@@ -895,9 +1381,9 @@
     if (tocAnchor) {
       e.preventDefault();
       const id = tocAnchor.getAttribute('href')?.slice(1);
-      if (id) {
-        const target = activePane().article.querySelector(`#${CSS.escape(id)}`);
-        target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      const pane = activePane();
+      if (id && pane?.kind === 'markdown') {
+        pane.article.querySelector(`#${CSS.escape(id)}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }
       return;
     }
@@ -952,20 +1438,28 @@
       const url = new URL(mdLink.href, window.location.origin);
       const targetFile = url.searchParams.get('file');
       if (targetFile) {
+        const cur = activePane();
         if (e.altKey || e.shiftKey) {
-          await openSplit(splitMode === 'none' ? 'vertical' : splitMode, targetFile);
+          await splitPane(focusedPaneId, 'vertical', 'markdown', { filePath: targetFile });
+        } else if (cur?.kind === 'markdown') {
+          await loadDocumentInPane(cur.id, targetFile, { pushState: true, hash: url.hash });
+          setFocusZone('pane', cur.id, false);
         } else {
-          await loadDocumentInPane(focusedPaneIdx, targetFile, {
-            pushState: focusedPaneIdx === 0,
-            hash: url.hash
-          });
-          setFocusZone('pane', focusedPaneIdx, false);
+          const existingMd = (lastMarkdownPaneId && panesById.get(lastMarkdownPaneId)) || allMarkdownPanes()[0];
+          if (existingMd) {
+            await loadDocumentInPane(existingMd.id, targetFile, { pushState: true, hash: url.hash });
+            setFocusZone('pane', existingMd.id, false);
+          } else {
+            await splitPane(focusedPaneId, 'vertical', 'markdown', { filePath: targetFile });
+          }
         }
       }
     }
   });
 
-  // Vim Keybinding Engine (Capture phase on window so Alt+Arrows & Ctrl+Alt/AltGraph shortcuts ALWAYS fire!)
+  // =========================================================================
+  // GLOBAL KEYBOARD ENGINE (Capture phase)
+  // =========================================================================
   let pendingPrefix = '';
   let countPrefix = '';
   let prefixTimer = null;
@@ -992,7 +1486,7 @@
 
   function jumpSection(dir) {
     const pane = activePane();
-    if (!pane.headings.length) return;
+    if (pane?.kind !== 'markdown' || !pane.headings.length) return;
     const scrollerTop = pane.scroller.getBoundingClientRect().top;
     if (dir > 0) {
       const next = pane.headings.find((h) => h.getBoundingClientRect().top > scrollerTop + 28);
@@ -1004,53 +1498,89 @@
   }
 
   function switchSiblingFile(dir) {
-    if (!fileListEl) return;
+    const pane = activePane();
+    if (!fileListEl || pane?.kind !== 'markdown') return;
     const items = Array.from(fileListEl.querySelectorAll('.mdv-file-item'));
     if (items.length <= 1) return;
-    const curPath = activePane().filePath;
-    const curIdx = items.findIndex((li) => li.getAttribute('data-file-path') === curPath);
+    const curIdx = items.findIndex((li) => li.getAttribute('data-file-path') === pane.filePath);
     const nextIdx = ((curIdx >= 0 ? curIdx : 0) + dir + items.length) % items.length;
     const pathAttr = items[nextIdx].getAttribute('data-file-path');
-    if (pathAttr) loadDocumentInPane(focusedPaneIdx, pathAttr, { pushState: focusedPaneIdx === 0 });
+    if (pathAttr) loadDocumentInPane(pane.id, pathAttr, { pushState: true });
   }
 
   window.addEventListener(
     'keydown',
     async (e) => {
-      const inInput = Boolean(e.target?.matches?.('input, textarea, select'));
+      const inXterm = Boolean(e.target?.closest?.('.xterm'));
+      const inInput = !inXterm && Boolean(e.target?.matches?.('input, textarea, select'));
       const isAltGraph = Boolean(e.getModifierState && e.getModifierState('AltGraph'));
       const isCtrlAlt = (e.ctrlKey && e.altKey && !e.metaKey) || (!inInput && isAltGraph && !e.metaKey);
 
-      // 1. Ctrl + Alt + R (Split Right) & Ctrl + Alt + D (Split Down)
-      // Handles Windows Spanish/LATAM keyboards where Ctrl+Alt sends AltGraph!
+      // 1. Global Split Creation Shortcuts (work inside Markdown, Terminal, AND File Tree!)
       if (isCtrlAlt) {
-        if (e.code === 'KeyR' || e.key?.toLowerCase() === 'r') {
+        // Ctrl+Alt+Shift+R/D OR Ctrl+Alt+T/B => WSL Terminal Split!
+        if ((e.shiftKey && e.code === 'KeyR') || e.code === 'KeyT') {
           e.preventDefault();
           e.stopPropagation();
-          if (focusZone === 'files' && treeCursorEl?.classList.contains('mdv-file-item')) {
-            await activateTreeCursorItem({ openInSplit: true });
-          } else {
-            await openSplit('vertical');
-          }
+          await splitPane(focusedPaneId, 'vertical', 'terminal');
           return;
         }
-        if (e.code === 'KeyD' || e.key?.toLowerCase() === 'd') {
+        if ((e.shiftKey && e.code === 'KeyD') || e.code === 'KeyB') {
           e.preventDefault();
           e.stopPropagation();
-          if (focusZone === 'files' && treeCursorEl?.classList.contains('mdv-file-item')) {
-            const p = treeCursorEl.getAttribute('data-file-path');
-            await openSplit('horizontal', p || null);
-          } else {
-            await openSplit('horizontal');
-          }
+          await splitPane(focusedPaneId, 'horizontal', 'terminal');
+          return;
+        }
+        // Ctrl+Alt+R / Ctrl+Alt+D => Markdown Split!
+        if (!e.shiftKey && (e.code === 'KeyR' || e.key?.toLowerCase() === 'r')) {
+          e.preventDefault();
+          e.stopPropagation();
+          const selFile =
+            focusZone === 'files' && treeCursorEl?.classList.contains('mdv-file-item')
+              ? treeCursorEl.getAttribute('data-file-path')
+              : null;
+          await splitPane(focusedPaneId, 'vertical', 'markdown', { filePath: selFile });
+          return;
+        }
+        if (!e.shiftKey && (e.code === 'KeyD' || e.key?.toLowerCase() === 'd')) {
+          e.preventDefault();
+          e.stopPropagation();
+          const selFile =
+            focusZone === 'files' && treeCursorEl?.classList.contains('mdv-file-item')
+              ? treeCursorEl.getAttribute('data-file-path')
+              : null;
+          await splitPane(focusedPaneId, 'horizontal', 'markdown', { filePath: selFile });
           return;
         }
       }
 
-      // 2. Alt + h / j / k / l: switch focus cleanly between File Browser <-> Open Document Panes
+      // Alt + Shift + R / D (WSL Terminal Right / Down) & Alt + Shift + W (Close active pane anywhere!)
+      if (e.altKey && e.shiftKey && !e.ctrlKey && !e.metaKey) {
+        if (e.code === 'KeyR') {
+          e.preventDefault();
+          e.stopPropagation();
+          await splitPane(focusedPaneId, 'vertical', 'terminal');
+          return;
+        }
+        if (e.code === 'KeyD') {
+          e.preventDefault();
+          e.stopPropagation();
+          await splitPane(focusedPaneId, 'horizontal', 'terminal');
+          return;
+        }
+        if (e.code === 'KeyW') {
+          e.preventDefault();
+          e.stopPropagation();
+          if (focusedPaneId) closePaneById(focusedPaneId);
+          return;
+        }
+      }
+
+      // 2. Spatial Alt + h / j / k / l across [Archivos] <-> [Markdown Panes] <-> [WSL Terminals]!
       if (
         e.altKey &&
         !e.ctrlKey &&
+        !e.shiftKey &&
         !e.metaKey &&
         !isAltGraph &&
         ['KeyH', 'KeyJ', 'KeyK', 'KeyL'].includes(e.code)
@@ -1063,10 +1593,11 @@
         return;
       }
 
-      if (inInput) return;
-
+      // If user is typing inside a WSL Terminal (or form input), let all normal keys go directly to zsh/bash!
       const pane = activePane();
-      const scroller = pane.scroller;
+      if (inInput || (focusZone === 'pane' && pane?.kind === 'terminal')) {
+        return;
+      }
 
       if (e.key === 'Escape') {
         resetVimPending();
@@ -1079,7 +1610,7 @@
           return;
         }
         if (focusZone === 'files') {
-          setFocusZone('pane', focusedPaneIdx);
+          setFocusZone('pane', focusedPaneId);
           return;
         }
         if (searchHits.length > 0) {
@@ -1089,39 +1620,33 @@
         return;
       }
 
-      // Handle pending <Leader> (Space) or ^W Split Window commands!
-      if (pendingPrefix === '␣' || pendingPrefix === '^W') {
+      // <Leader> (Space) Split Window commands
+      if (pendingPrefix === '␣') {
         resetVimPending();
         e.preventDefault();
-        const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
-        if (k === 'v' || k === '|' || k === 'r') await openSplit('vertical');
-        else if (k === 's' || k === '-' || k === 'd') await openSplit('horizontal');
-        else if (k === 'w' || k === ' ') {
-          if (splitMode !== 'none') setFocusZone('pane', focusedPaneIdx === 0 ? 1 : 0);
-        } else if (k === 'h' || k === 'arrowleft') {
-          handleSpatialFocusNavigation('left');
-        } else if (k === 'l' || k === 'arrowright') {
-          handleSpatialFocusNavigation('right');
-        } else if (k === 'k' || k === 'arrowup') {
-          if (splitMode === 'horizontal') setFocusZone('pane', 0);
-        } else if (k === 'j' || k === 'arrowdown') {
-          if (splitMode === 'horizontal') setFocusZone('pane', 1);
-        } else if (k === 'x') {
-          swapPanes();
-        } else if (k === '=') {
-          applySplitSizes(0.5);
-          showToast('Paneles 50 / 50');
+        const k = e.key;
+        if (k === 'v' || k === '|') await splitPane(focusedPaneId, 'vertical', 'markdown');
+        else if (k === 's' || k === '-') await splitPane(focusedPaneId, 'horizontal', 'markdown');
+        else if (k === 't') await splitPane(focusedPaneId, 'vertical', 'terminal');
+        else if (k === 'T') await splitPane(focusedPaneId, 'horizontal', 'terminal');
+        else if (k === 'h') handleSpatialFocusNavigation('left');
+        else if (k === 'l') handleSpatialFocusNavigation('right');
+        else if (k === 'k') handleSpatialFocusNavigation('up');
+        else if (k === 'j') handleSpatialFocusNavigation('down');
+        else if (k === '=') {
+          equalizeAllBranches();
+          showToast('Splits igualados 50 / 50');
         } else if (k === 'y') {
           toggleSyncScroll();
         } else if (k === 'q' || k === 'c') {
-          closePane(focusedPaneIdx);
+          if (focusedPaneId) closePaneById(focusedPaneId);
         } else if (k === 'o') {
-          if (splitMode !== 'none') closePane(focusedPaneIdx === 0 ? 1 : 0);
+          if (focusedPaneId) closeOtherPanes(focusedPaneId);
         }
         return;
       }
 
-      // Ctrl shortcuts
+      // Ctrl shortcuts in Markdown / Files mode
       if (e.ctrlKey && !e.altKey && !e.metaKey) {
         if (e.key === 'p') {
           e.preventDefault();
@@ -1130,26 +1655,20 @@
           fileFilterEl?.select();
           return;
         }
-        if (focusZone === 'pane') {
+        if (focusZone === 'pane' && pane?.kind === 'markdown') {
+          const scroller = pane.scroller;
           if (e.key === 'd') {
             e.preventDefault();
             scroller.scrollBy({ top: scroller.clientHeight * 0.5, behavior: 'auto' });
-            return;
-          }
-          if (e.key === 'u') {
+          } else if (e.key === 'u') {
             e.preventDefault();
             scroller.scrollBy({ top: -scroller.clientHeight * 0.5, behavior: 'auto' });
-            return;
-          }
-          if (e.key === 'f') {
+          } else if (e.key === 'f') {
             e.preventDefault();
             scroller.scrollBy({ top: scroller.clientHeight * 0.88, behavior: 'auto' });
-            return;
-          }
-          if (e.key === 'b') {
+          } else if (e.key === 'b') {
             e.preventDefault();
             scroller.scrollBy({ top: -scroller.clientHeight * 0.88, behavior: 'auto' });
-            return;
           }
         }
         return;
@@ -1157,7 +1676,6 @@
 
       if (e.metaKey || e.altKey) return;
 
-      // Numeric count prefix (1-9, or 0 after digits)
       if (/^[1-9]$/.test(e.key) || (e.key === '0' && countPrefix.length > 0)) {
         if (!pendingPrefix) {
           setPending('', countPrefix + e.key);
@@ -1167,9 +1685,7 @@
 
       const count = Math.max(1, Number(countPrefix || 1));
 
-      // =========================================================
-      // MODE A: FILE BROWSER VIM NAVIGATION (focusZone === 'files')
-      // =========================================================
+      // FILE BROWSER VIM MODE
       if (focusZone === 'files') {
         if (pendingPrefix === 'g') {
           resetVimPending();
@@ -1265,18 +1781,21 @@
             return;
           case 'q':
             e.preventDefault();
-            setFocusZone('pane', focusedPaneIdx);
+            setFocusZone('pane', focusedPaneId);
             return;
         }
         return;
       }
 
-      // =========================================================
-      // MODE B: DOCUMENT PANE VIM NAVIGATION (focusZone === 'pane')
-      // =========================================================
-      if (e.key === 'Tab' && splitMode !== 'none') {
+      // MARKDOWN PANE VIM MODE
+      if (!pane || pane.kind !== 'markdown') return;
+      const scroller = pane.scroller;
+
+      if (e.key === 'Tab' && panesById.size > 1) {
         e.preventDefault();
-        setFocusZone('pane', focusedPaneIdx === 0 ? 1 : 0);
+        const ids = Array.from(panesById.keys());
+        const nextId = ids[(ids.indexOf(pane.id) + 1) % ids.length];
+        setFocusZone('pane', nextId);
         return;
       }
 
@@ -1412,11 +1931,11 @@
           break;
         case 'V':
           e.preventDefault();
-          await openSplit('vertical');
+          await splitPane(pane.id, 'vertical', 'markdown');
           break;
         case 'S':
           e.preventDefault();
-          await openSplit('horizontal');
+          await splitPane(pane.id, 'horizontal', 'markdown');
           break;
         case 'h': {
           const car = findVisibleCarouselInPane(pane);
@@ -1482,7 +2001,7 @@
         case 'r':
           e.preventDefault();
           if (pane.filePath) {
-            await loadDocumentInPane(pane.idx, pane.filePath, { preserveScroll: true, isLiveReload: true });
+            await loadDocumentInPane(pane.id, pane.filePath, { preserveScroll: true, isLiveReload: true });
             showToast('Recargado');
           }
           break;
@@ -1492,37 +2011,42 @@
           break;
         case 'q':
           e.preventDefault();
-          if (splitMode !== 'none') closePane(focusedPaneIdx);
-          else window.close();
+          closePaneById(pane.id);
           break;
       }
     },
     { capture: true }
   );
 
-  // Per-Pane Scroll-Spy + Sync Scroll
+  // =========================================================================
+  // SCROLL-SPY, DOCUMENT LOADING & LIVE-RELOAD
+  // =========================================================================
   function refreshHeadings(pane) {
+    if (pane?.kind !== 'markdown') return;
     pane.headings = Array.from(pane.article.querySelectorAll('.mdv-heading[id]'));
   }
 
-  function onPaneScroll(pane) {
+  function onMarkdownPaneScroll(pane) {
+    if (pane.kind !== 'markdown') return;
     const scroller = pane.scroller;
     const scrollTop = scroller.scrollTop;
     const maxScroll = scroller.scrollHeight - scroller.clientHeight;
 
-    if (syncScroll && splitMode !== 'none' && !isSyncingScroll && maxScroll > 0) {
+    if (syncScroll && !isSyncingScroll && maxScroll > 0) {
       isSyncingScroll = true;
-      const other = panes[pane.idx === 0 ? 1 : 0];
-      const otherMax = other.scroller.scrollHeight - other.scroller.clientHeight;
-      if (otherMax > 0) {
-        other.scroller.scrollTop = (scrollTop / maxScroll) * otherMax;
+      for (const other of allMarkdownPanes()) {
+        if (other.id === pane.id) continue;
+        const otherMax = other.scroller.scrollHeight - other.scroller.clientHeight;
+        if (otherMax > 0) {
+          other.scroller.scrollTop = (scrollTop / maxScroll) * otherMax;
+        }
       }
       requestAnimationFrame(() => {
         isSyncingScroll = false;
       });
     }
 
-    if (pane.idx !== focusedPaneIdx || focusZone === 'files') return;
+    if (pane.id !== focusedPaneId || focusZone === 'files') return;
 
     if (vimPosEl) {
       if (maxScroll <= 4) vimPosEl.textContent = 'ALL';
@@ -1546,10 +2070,6 @@
     });
   }
 
-  panes.forEach((p) => {
-    p.scroller.addEventListener('scroll', () => onPaneScroll(p), { passive: true });
-  });
-
   function renderToc(toc) {
     if (!tocListEl) return;
     tocListEl.innerHTML = (toc || [])
@@ -1562,14 +2082,15 @@
 
   function updateFileTreeMarkers() {
     if (!fileListEl) return;
-    const focusedPath = activePane().filePath;
-    const otherPath = splitMode !== 'none' ? panes[focusedPaneIdx === 0 ? 1 : 0].filePath : '';
+    const cur = activePane();
+    const focusedPath = cur?.kind === 'markdown' ? cur.filePath : '';
+    const openMdPaths = new Set(allMarkdownPanes().map((p) => p.filePath));
     let activeLi = null;
 
     fileListEl.querySelectorAll('.mdv-file-item').forEach((li) => {
       const p = li.getAttribute('data-file-path');
-      const isCur = p === focusedPath;
-      const isSec = splitMode !== 'none' && p === otherPath && !isCur;
+      const isCur = Boolean(focusedPath) && p === focusedPath;
+      const isSec = !isCur && openMdPaths.has(p);
       li.classList.toggle('is-current', isCur);
       li.classList.toggle('is-secondary', isSec);
       if (isCur) activeLi = li;
@@ -1586,12 +2107,12 @@
   }
 
   async function loadDocumentInPane(
-    paneIdx,
+    paneId,
     filePath,
     { pushState = false, hash = '', preserveScroll = false, isLiveReload = false } = {}
   ) {
-    const pane = panes[paneIdx];
-    if (!pane || !filePath) return;
+    const pane = panesById.get(paneId);
+    if (!pane || pane.kind !== 'markdown' || !filePath) return;
 
     const isSameFile = filePath === pane.filePath;
     const scrollBefore = pane.scroller.scrollTop;
@@ -1646,7 +2167,7 @@
     initHorizontalBlockScrollbars(pane.article);
     refreshHeadings(pane);
 
-    if (paneIdx === focusedPaneIdx) {
+    if (pane.id === focusedPaneId) {
       if (fileNameEl) fileNameEl.textContent = pane.relPath;
       document.title = `${data.title || data.fileName} — mdv`;
       renderToc(pane.toc);
@@ -1656,23 +2177,23 @@
 
     if (isLiveReload) flashReloadIndicator();
 
-    if (pushState && paneIdx === 0) {
+    if (pushState) {
       history.pushState({ file: pane.filePath }, '', `/?file=${encodeURIComponent(pane.filePath)}${hash || ''}`);
     }
     if (hash) {
-      const target = pane.article.querySelector(`#${CSS.escape(hash.slice(1))}`);
-      target?.scrollIntoView();
+      pane.article.querySelector(`#${CSS.escape(hash.slice(1))}`)?.scrollIntoView();
     } else if (isSameFile || preserveScroll) {
       pane.scroller.scrollTop = scrollBefore;
     } else {
       pane.scroller.scrollTop = 0;
     }
-    onPaneScroll(pane);
+    onMarkdownPaneScroll(pane);
   }
 
   window.addEventListener('popstate', (e) => {
     const f = e.state?.file || new URLSearchParams(location.search).get('file');
-    if (f) loadDocumentInPane(0, f, { pushState: false, hash: location.hash });
+    const md = allMarkdownPanes()[0];
+    if (f && md) loadDocumentInPane(md.id, f, { pushState: false, hash: location.hash });
   });
 
   function connectEvents() {
@@ -1682,24 +2203,23 @@
     es.addEventListener('reload', (ev) => {
       let payload = {};
       try { payload = JSON.parse(ev.data || '{}'); } catch {}
-      if (payload.reason === 'tree' && panes[focusedPaneIdx]?.filePath) {
-        loadDocumentInPane(focusedPaneIdx, panes[focusedPaneIdx].filePath, {
-          preserveScroll: true,
-          isLiveReload: false
-        });
+      if (payload.reason === 'tree') {
+        const md = allMarkdownPanes()[0];
+        if (md?.filePath) {
+          loadDocumentInPane(md.id, md.filePath, { preserveScroll: true, isLiveReload: false });
+        }
         return;
       }
       const changed = payload.file;
-      const visiblePanes = splitMode === 'none' ? [panes[0]] : panes;
-      for (const p of visiblePanes) {
-        if (!changed || p.filePath === changed) {
-          loadDocumentInPane(p.idx, p.filePath, { preserveScroll: true, isLiveReload: true });
+      for (const mp of allMarkdownPanes()) {
+        if (!changed || mp.filePath === changed) {
+          loadDocumentInPane(mp.id, mp.filePath, { preserveScroll: true, isLiveReload: true });
         }
       }
     });
   }
 
-  // Boot
+  // Boot initial root Markdown pane
   if (initCfg.maximized) {
     try {
       if (window.outerWidth < screen.availWidth - 24 || window.outerHeight < screen.availHeight - 24) {
@@ -1708,15 +2228,29 @@
       }
     } catch {}
   }
-  initCarouselsForPane(panes[0]);
-  renderMermaidDiagrams(panes[0].article).then(() => initHorizontalBlockScrollbars(panes[0].article));
-  initHorizontalBlockScrollbars(panes[0].article);
-  refreshHeadings(panes[0]);
-  onPaneScroll(panes[0]);
-  updateFileTreeMarkers();
+
+  const rootPane = createMarkdownPane({
+    filePath: initCfg.currentFile || '',
+    relPath: initCfg.initialRelPath || '',
+    html: initialHtml,
+    toc: initCfg.initialToc || []
+  });
+  rootTree = rootPane;
+  panesRootEl.appendChild(rootPane.el);
+  focusedPaneId = rootPane.id;
+
+  applyZoom(zoomPercent, false);
+  initCarouselsForPane(rootPane);
+  renderMermaidDiagrams(rootPane.article).then(() => initHorizontalBlockScrollbars(rootPane.article));
+  initHorizontalBlockScrollbars(rootPane.article);
+  refreshHeadings(rootPane);
+  setFocusZone('pane', rootPane.id, false);
+  updatePaneCountAttr();
   connectEvents();
 
   if (initCfg.splitFile) {
-    openSplit(initCfg.splitDirection || 'vertical', initCfg.splitFile);
+    splitPane(rootPane.id, initCfg.splitDirection || 'vertical', 'markdown', {
+      filePath: initCfg.splitFile
+    });
   }
 })();

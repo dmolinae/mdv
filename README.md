@@ -12,8 +12,8 @@ Visor ligero de Markdown lanzado desde la terminal que abre una **ventana limpia
   - **Fórmulas matemáticas (KaTeX):** soporte en línea (`$...$`) y en bloque (`$$...$$`).
   - **Código con resaltado (`highlight.js`):** botón de copiado rápido y soporte de bloques `<details>` desplegables.
 - **Explorador recursivo de carpetas:** ejecuta `mdv` en cualquier directorio para listar en un árbol colapsable todos los `.md` de la carpeta actual y subcarpetas (con filtro rápido `Ctrl+P`).
-- **Split Views (Vertical y Horizontal):** compara dos documentos `.md` (o dos secciones distintas del mismo documento) lado a lado o arriba/abajo con divisor arrastrable, intercambio de paneles, scroll independiente o sincronizado (`Sync`) y *live-reload* simultáneo en ambos paneles.
-- **Mappings estilo Vim + Índice (TOC):** navegación fluida con teclado (`j`/`k`, `5j`, `d`/`u`, `gg`/`G`, `]]`/`[[`, `/` + `n`/`N`, `V`/`S`, `Espacio` leader, `h`/`l`, `zR`/`zM`, `?`, `q`) y tabla de contenidos lateral con *scroll-spy* del panel activo.
+- **Splits infinitos (Markdown + Terminales reales de WSL):** divide cualquier panel vertical u horizontalmente sin límite, combinando documentos Markdown con **terminales interactivas reales de WSL (`zsh`/`bash` vía PTY + `xterm.js`)** sincronizadas con tu tema y tamaño de letra (`A−` / `100%` / `A+`).
+- **Mappings estilo Vim + Índice (TOC):** navegación fluida con teclado (`Alt+h/j/k/l` entre archivos, documentos y terminales, `j`/`k`, `5j`, `d`/`u`, `gg`/`G`, `]]`/`[[`, `/` + `n`/`N`, `?`, `q`) y tabla de contenidos lateral con *scroll-spy*.
 - **Live-Reload híbrido y apagado automático:** detecta cambios al instante (incluso guardados atómicos de Vim/Neovim y rutas `/mnt/c/...`), devuelve el prompt de la terminal enseguida y apaga su servidor local automáticamente al cerrar la ventana.
 
 ---
@@ -91,8 +91,10 @@ mdv -b demo.md
 | Alternar ancho de lectura / Rotar tema | `w` / `c` |
 | Zoom `+` / `-` / restablecer | `+` · `-` · `0` |
 | Copiar ruta actual / bloque de código visible | `yy` / `yc` |
-| Split Right (lado a lado) / Split Down (arriba/abajo) | `Ctrl+Alt+R` / `Ctrl+Alt+D` (o `Espacio v` / `Espacio s`) |
-| Cambiar foco entre paneles Split | `Alt + h/j/k/l` o `Tab` |
+| Split Markdown Right / Down (infinitos) | `Ctrl+Alt+R` / `Ctrl+Alt+D` (o `Espacio v` / `Espacio s`) |
+| Split Terminal WSL Right / Down (infinitos) | `Alt+Shift+R` / `Alt+Shift+D` (o `Ctrl+Alt+T` / `Ctrl+Alt+B`) |
+| Cerrar cualquier panel activo (MD o Terminal) | `Alt+Shift+W` (o `q` en Markdown / `exit` en Terminal) |
+| Cambiar foco 2D (Archivos ↔ Markdown ↔ Terminales) | `Alt + h` / `Alt + j` / `Alt + k` / `Alt + l` |
 | Abrir archivo del árbol en el otro panel Split | `Alt + Clic` (o icono Split al pasar ratón) |
 | Intercambiar paneles / Igualar 50:50 / Sync scroll | `Espacio x` · `Espacio =` · `Espacio y` |
 | Cerrar panel Split activo / Dejar solo panel activo | `q` (o `Espacio q`) · `Espacio o` |

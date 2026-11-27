@@ -22,6 +22,7 @@ if [[ "${1:-}" == "--local" ]]; then
 fi
 
 command -v git >/dev/null 2>&1 || err "Se requiere 'git'. En Ubuntu/WSL2 ejecuta: sudo apt update && sudo apt install -y git"
+command -v python3 >/dev/null 2>&1 || err "Se requiere 'python3' para el puente PTY de terminales WSL."
 command -v node >/dev/null 2>&1 || err "Se requiere 'node' (>= 18). Instálalo con nvm/fnm o NodeSource antes de continuar."
 command -v npm >/dev/null 2>&1 || err "Se requiere 'npm'. Verifica tu instalación de Node.js."
 
@@ -49,7 +50,7 @@ else
   fi
 fi
 
-info "Instalando dependencias de renderizado (marked, mermaid, katex, highlight.js, overlayscrollbars)..."
+info "Instalando dependencias de renderizado y terminales WSL (marked, mermaid, katex, xterm, ws, overlayscrollbars)..."
 if [[ -f "$TARGET_DIR/package-lock.json" ]]; then
   (cd "$TARGET_DIR" && npm ci --omit=dev --no-audit --no-fund --loglevel=error)
 else
