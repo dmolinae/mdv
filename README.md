@@ -4,7 +4,7 @@ Visor ligero de Markdown lanzado desde la terminal que abre una **ventana limpia
 
 ## Características principales
 
-- **Ventana limpia nativa (`--app`):** utiliza Chrome/Edge nativo de Windows sin pestañas ni barra de URLs, con renderizado tipográfico DirectWrite nítido.
+- **Ventana limpia nativa (`--app`) maximizada por defecto:** utiliza Chrome/Edge nativo de Windows con un perfil aislado ligero para abrirse siempre maximizada al instante (sin pestañas ni barra de URLs y con renderizado tipográfico DirectWrite nítido; usa `--windowed` si prefieres ventana flotante).
 - **Componentes extendidos:**
   - **Carruseles interactivos (`carousel`):** bloques ````carousel` separados con `<!-- slide -->` o `<!-- slide: Título -->`, navegables con botones, puntos, arrastre o teclas `h` / `l` (permitiendo código, tablas, alertas y Mermaid dentro de cada vista).
   - **Diagramas Mermaid vectoriales:** SVG adaptativos al tema con vista de código fuente y modo **Ampliar**.

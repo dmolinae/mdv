@@ -11,6 +11,33 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR = path.resolve(__dirname, '..');
 const PUBLIC_DIR = path.join(ROOT_DIR, 'public');
 const NODE_MODULES_DIR = path.join(ROOT_DIR, 'node_modules');
+const CONFIG_FILE = path.join(process.env.HOME || '/tmp', '.config', 'mdv', 'config.json');
+
+function loadUserConfig() {
+  const defaults = {
+    maximized: true,
+    theme: 'tokyo',
+    wide: false,
+    zoom: 100
+  };
+  try {
+    if (fs.existsSync(CONFIG_FILE)) {
+      return { ...defaults, ...JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8')) };
+    }
+  } catch {}
+  return defaults;
+}
+
+function saveUserConfig(patch) {
+  try {
+    const next = { ...loadUserConfig(), ...patch };
+    fs.mkdirSync(path.dirname(CONFIG_FILE), { recursive: true });
+    fs.writeFileSync(CONFIG_FILE, JSON.stringify(next, null, 2) + '\n', 'utf8');
+    return next;
+  } catch {
+    return loadUserConfig();
+  }
+}
 
 const IGNORED_DIRS = new Set([
   'node_modules',
@@ -75,6 +102,7 @@ Opciones:
       --hz                   Usar Split View horizontal (arriba/abajo) cuando se abren 2 archivos
   -t, --theme <nombre>       Tema inicial: tokyo (default), github-dark, catppuccin, light
   -b, --browser              Abrir en pestaña normal del navegador (en vez de ventana --app)
+      --windowed             Abrir en ventana normal sin maximizar (por defecto abre maximizada)
       --no-open              No abrir ventana automáticamente (solo imprimir URL)
       --fg                   Mantener el servidor en primer plano en la terminal
       --keep-alive           No apagar el servidor automáticamente al cerrar la ventana
@@ -85,13 +113,16 @@ Opciones:
 }
 
 function parseArgs(argv) {
+  const savedCfg = loadUserConfig();
   const opts = {
     target: null,
     splitTarget: null,
     splitDirection: 'vertical',
     workspace: null,
     dirMode: false,
-    theme: 'tokyo',
+    theme: savedCfg.theme || 'tokyo',
+    themeExplicit: false,
+    maximized: savedCfg.maximized !== false,
     appMode: true,
     open: true,
     foreground: false,
@@ -108,7 +139,7 @@ function parseArgs(argv) {
       process.exit(0);
     }
     if (arg === '-V' || arg === '--version') {
-      console.log('mdv 1.3.1');
+      console.log('mdv 1.3.2');
       process.exit(0);
     }
     if (arg === '--update') {
@@ -126,6 +157,8 @@ function parseArgs(argv) {
       }
     }
     if (arg === '-b' || arg === '--browser') opts.appMode = false;
+    else if (arg === '--windowed') opts.maximized = false;
+    else if (arg === '--maximized') opts.maximized = true;
     else if (arg === '--no-open') opts.open = false;
     else if (arg === '--fg') opts.foreground = true;
     else if (arg === '--keep-alive') opts.keepAlive = true;
@@ -134,7 +167,10 @@ function parseArgs(argv) {
     else if (arg === '--hz') opts.splitDirection = 'horizontal';
     else if ((arg === '-s' || arg === '--split') && argv[i + 1]) opts.splitTarget = argv[++i];
     else if (arg === '--workspace' && argv[i + 1]) opts.workspace = argv[++i];
-    else if ((arg === '-t' || arg === '--theme') && argv[i + 1]) opts.theme = argv[++i];
+    else if ((arg === '-t' || arg === '--theme') && argv[i + 1]) {
+      opts.theme = argv[++i];
+      opts.themeExplicit = true;
+    }
     else if ((arg === '-p' || arg === '--port') && argv[i + 1]) opts.port = Number(argv[++i]) || 0;
     else if (arg === '--stdin-file' && argv[i + 1]) opts.stdinFile = argv[++i];
     else if (!arg.startsWith('-')) {
@@ -320,10 +356,36 @@ function findWindowsBrowser() {
   return null;
 }
 
-function launchWindow(url, appMode) {
+function getWindowsAppProfileDir() {
+  try {
+    if (fs.existsSync('/mnt/c/WINDOWS/system32/cmd.exe')) {
+      const localAppData = execSync('/mnt/c/WINDOWS/system32/cmd.exe /c "echo %LOCALAPPDATA%"', {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore']
+      }).trim();
+      if (localAppData && !localAppData.includes('%')) {
+        return `${localAppData}\\mdv-viewer-profile`;
+      }
+    }
+  } catch {}
+  return null;
+}
+
+function launchWindow(url, appMode, maximized = true) {
   const browser = findWindowsBrowser();
   if (browser && appMode) {
-    const child = spawn(browser, [`--app=${url}`, '--window-size=1420,880'], {
+    const args = [`--app=${url}`, '--no-first-run', '--no-default-browser-check'];
+    const winProfile = getWindowsAppProfileDir();
+    if (winProfile) {
+      // Dedicated profile guarantees --start-maximized is honored by Windows even when main Chrome/Edge is already open!
+      args.push(`--user-data-dir=${winProfile}`);
+    }
+    if (maximized) {
+      args.push('--start-maximized');
+    } else {
+      args.push('--window-size=1420,880');
+    }
+    const child = spawn(browser, args, {
       detached: true,
       stdio: 'ignore'
     });
@@ -538,7 +600,8 @@ function buildHtmlShell({
       splitDirection: splitDirection || 'vertical',
       workspaceDir,
       dirMode: Boolean(dirMode),
-      defaultTheme
+      defaultTheme,
+      maximized: loadUserConfig().maximized !== false
     })};
   </script>
   <script src="/vendor/overlayscrollbars/overlayscrollbars.browser.es6.min.js"></script>
@@ -592,6 +655,7 @@ async function main() {
       if (opts.splitDirection === 'horizontal') forwardArgs.push('--hz');
     }
     if (effectiveDirMode) forwardArgs.push('--dir-mode');
+    if (!opts.maximized) forwardArgs.push('--windowed');
     if (!opts.appMode) forwardArgs.push('--browser');
     if (opts.keepAlive) forwardArgs.push('--keep-alive');
     if (opts.port) forwardArgs.push('--port', String(opts.port));
@@ -725,6 +789,23 @@ async function main() {
       return;
     }
 
+    if (url.pathname === '/api/prefs' && req.method === 'POST') {
+      let body = '';
+      req.on('data', (c) => (body += c));
+      req.on('end', () => {
+        try {
+          const patch = JSON.parse(body || '{}');
+          const next = saveUserConfig(patch);
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(next));
+        } catch {
+          res.writeHead(400);
+          res.end('Bad JSON');
+        }
+      });
+      return;
+    }
+
     if (url.pathname === '/api/doc') {
       const requested = url.searchParams.get('file') || initialFile;
       const resolved = path.resolve(requested);
@@ -835,7 +916,7 @@ async function main() {
       console.log(`mdv escuchando en ${url} (${workspaceDir})`);
     }
     if (opts.open) {
-      launchWindow(url, opts.appMode);
+      launchWindow(url, opts.appMode, opts.maximized);
     }
   });
 }

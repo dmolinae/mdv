@@ -171,6 +171,11 @@
     if (themeSelect) themeSelect.value = theme;
     localStorage.setItem('mdv-theme', theme);
     if (rerenderDiagrams) {
+      fetch('/api/prefs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ theme })
+      }).catch(() => {});
       renderMermaidDiagrams(panes[0].article);
       if (splitMode !== 'none') renderMermaidDiagrams(panes[1].article);
     }
@@ -1393,6 +1398,14 @@
   }
 
   // Boot Pane 0 (and optional CLI initial Split Pane 1)
+  if (initCfg.maximized) {
+    try {
+      if (window.outerWidth < screen.availWidth - 24 || window.outerHeight < screen.availHeight - 24) {
+        window.moveTo(screen.availLeft || 0, screen.availTop || 0);
+        window.resizeTo(screen.availWidth, screen.availHeight);
+      }
+    } catch {}
+  }
   initCarouselsForPane(panes[0]);
   renderMermaidDiagrams(panes[0].article).then(() => initHorizontalBlockScrollbars(panes[0].article));
   initHorizontalBlockScrollbars(panes[0].article);
