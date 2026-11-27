@@ -610,9 +610,9 @@
             <div class="mdv-help-row"><span>Siguiente / anterior sección</span><span><kbd class="mdv-kbd">]]</kbd> / <kbd class="mdv-kbd">[[</kbd></span></div>
           </div>
           <div class="mdv-help-section">
-            <h4>Split Views (Leader Espacio)</h4>
-            <div class="mdv-help-row"><span>Split vertical / horizontal</span><span><kbd class="mdv-kbd">V</kbd> / <kbd class="mdv-kbd">S</kbd> o <kbd class="mdv-kbd">Espacio v/s</kbd></span></div>
-            <div class="mdv-help-row"><span>Cambiar foco de panel</span><span><kbd class="mdv-kbd">Tab</kbd> o <kbd class="mdv-kbd">Espacio h/l/j/k/w</kbd></span></div>
+            <h4>Split Views</h4>
+            <div class="mdv-help-row"><span>Split Right / Split Down</span><span><kbd class="mdv-kbd">Ctrl+Alt+R</kbd> / <kbd class="mdv-kbd">Ctrl+Alt+D</kbd></span></div>
+            <div class="mdv-help-row"><span>Cambiar foco de panel</span><span><kbd class="mdv-kbd">Tab</kbd> o <kbd class="mdv-kbd">Espacio h/l/j/k</kbd></span></div>
             <div class="mdv-help-row"><span>Intercambiar / Igualar 50:50</span><span><kbd class="mdv-kbd">Espacio x</kbd> / <kbd class="mdv-kbd">Espacio =</kbd></span></div>
             <div class="mdv-help-row"><span>Sincronizar scroll</span><span><kbd class="mdv-kbd">Espacio y</kbd></span></div>
             <div class="mdv-help-row"><span>Cerrar panel / Solo este panel</span><span><kbd class="mdv-kbd">q</kbd> / <kbd class="mdv-kbd">Espacio o</kbd></span></div>
@@ -782,6 +782,23 @@
   }
 
   document.addEventListener('keydown', async (e) => {
+    // Ctrl + Alt + R (Split Right / vertical) & Ctrl + Alt + D (Split Down / horizontal)
+    // Placed before input guard & uses e.code so AltGr / Spanish keyboards and focused inputs always work!
+    if (e.ctrlKey && e.altKey && !e.metaKey) {
+      if (e.code === 'KeyR' || e.key.toLowerCase() === 'r') {
+        e.preventDefault();
+        e.stopPropagation();
+        await openSplit('vertical');
+        return;
+      }
+      if (e.code === 'KeyD' || e.key.toLowerCase() === 'd') {
+        e.preventDefault();
+        e.stopPropagation();
+        await openSplit('horizontal');
+        return;
+      }
+    }
+
     if (e.target.matches('input, textarea, select')) return;
 
     const pane = activePane();

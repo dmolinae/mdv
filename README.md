@@ -88,7 +88,7 @@ mdv -b demo.md
 | Alternar ancho de lectura / Rotar tema | `w` / `c` |
 | Zoom `+` / `-` / restablecer | `+` · `-` · `0` |
 | Copiar ruta actual / bloque de código visible | `yy` / `yc` |
-| Split vertical / Split horizontal | `V` / `S` (o `Espacio v` / `Espacio s`) |
+| Split Right (lado a lado) / Split Down (arriba/abajo) | `Ctrl+Alt+R` / `Ctrl+Alt+D` |
 | Cambiar foco entre paneles Split | `Tab` (o `Espacio h/l/j/k/w`) |
 | Abrir archivo del árbol en el otro panel Split | `Alt + Clic` (o icono Split al pasar ratón) |
 | Intercambiar paneles / Igualar 50:50 / Sync scroll | `Espacio x` · `Espacio =` · `Espacio y` |

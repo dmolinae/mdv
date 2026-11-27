@@ -411,11 +411,11 @@ function buildHtmlShell({
     </div>
     <div class="mdv-topbar-right">
       <div class="mdv-split-group" role="group" aria-label="Split View">
-        <button type="button" id="mdv-split-vertical" class="mdv-tool-btn" title="Split Vertical lado a lado (V o Espacio v)">
+        <button type="button" id="mdv-split-vertical" class="mdv-tool-btn" title="Split Right lado a lado (Ctrl+Alt+R)">
           <svg viewBox="0 0 16 16" width="13" height="13" fill="currentColor"><path d="M1.75 1h12.5c.966 0 1.75.784 1.75 1.75v10.5A1.75 1.75 0 0 1 14.25 15H1.75A1.75 1.75 0 0 1 0 13.25V2.75C0 1.784.784 1 1.75 1ZM1.5 2.75v10.5c0 .138.112.25.25.25h5.5v-11h-5.5a.25.25 0 0 0-.25.25Zm7 10.75h5.75a.25.25 0 0 0 .25-.25V2.75a.25.25 0 0 0-.25-.25H8.5Z"/></svg>
           <span>Split |</span>
         </button>
-        <button type="button" id="mdv-split-horizontal" class="mdv-tool-btn" title="Split Horizontal arriba/abajo (S o Espacio s)">
+        <button type="button" id="mdv-split-horizontal" class="mdv-tool-btn" title="Split Down arriba/abajo (Ctrl+Alt+D)">
           <svg viewBox="0 0 16 16" width="13" height="13" fill="currentColor"><path d="M1.75 1h12.5c.966 0 1.75.784 1.75 1.75v10.5A1.75 1.75 0 0 1 14.25 15H1.75A1.75 1.75 0 0 1 0 13.25V2.75C0 1.784.784 1 1.75 1ZM1.5 2.75v4.5h13v-4.5a.25.25 0 0 0-.25-.25H1.75a.25.25 0 0 0-.25.25Zm0 6v4.5c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25v-4.5Z"/></svg>
           <span>Split —</span>
         </button>
