@@ -115,9 +115,7 @@
   const btnToggleSideZone = document.getElementById('mdv-toggle-side-zone');
   const btnTermV = document.getElementById('mdv-term-vertical');
   const btnTermH = document.getElementById('mdv-term-horizontal');
-  const btnFontDec = document.getElementById('mdv-font-dec');
-  const btnFontReset = document.getElementById('mdv-font-reset');
-  const btnFontInc = document.getElementById('mdv-font-inc');
+  const fontPtSelect = document.getElementById('mdv-font-pt-select');
   const btnSearch = document.getElementById('mdv-open-search');
   const btnHelp = document.getElementById('mdv-open-help');
   const topbarEl = document.getElementById('mdv-topbar');
@@ -228,6 +226,7 @@
   const cuBackTasksBtn = document.getElementById('mdv-cu-back-tasks-btn');
   const cuDisconnectBtn = document.getElementById('mdv-cu-disconnect-btn');
   const cuTeamSelect = document.getElementById('mdv-cu-team-select');
+  const cuAreaSelect = document.getElementById('mdv-cu-area-select');
   const cuUserBadgeEl = document.getElementById('mdv-cu-user-badge');
   const cuAssigneeScrollEl = document.getElementById('mdv-cu-assignee-scroll');
   const cuAssigneeTabsEl = document.getElementById('mdv-cu-assignee-tabs');
@@ -355,7 +354,36 @@
   let treeCursorEl = null;
   let syncScroll = false;
   let isSyncingScroll = false;
-  let zoomPercent = Number(localStorage.getItem('mdv-zoom') || initCfg.defaultZoom || 100);
+  const FONT_PT_OPTIONS = [6, 6.5, 7, 7.5, 8, 8.5, 9, 9.5, 10, 10.5, 11, 11.5, 12, 13, 14, 15, 16, 18, 20];
+
+  function snapToNearestPt(rawPt) {
+    const n = Number(rawPt);
+    if (!Number.isFinite(n) || n <= 0) return 11;
+    let best = FONT_PT_OPTIONS[0];
+    let bestDiff = Math.abs(n - best);
+    for (const opt of FONT_PT_OPTIONS) {
+      const d = Math.abs(n - opt);
+      if (d < bestDiff) {
+        best = opt;
+        bestDiff = d;
+      }
+    }
+    return best;
+  }
+
+  let fontPt = (() => {
+    const savedPt = localStorage.getItem('mdv-font-pt');
+    if (savedPt != null && savedPt !== '') return snapToNearestPt(Number(savedPt));
+    if (typeof initCfg.defaultFontPt === 'number' && initCfg.defaultFontPt !== 11) {
+      return snapToNearestPt(initCfg.defaultFontPt);
+    }
+    const legacyZoom = Number(localStorage.getItem('mdv-zoom') || initCfg.defaultZoom || 100);
+    if (Number.isFinite(legacyZoom) && legacyZoom !== 100) {
+      return snapToNearestPt((11 * legacyZoom) / 100);
+    }
+    return snapToNearestPt(initCfg.defaultFontPt || 11);
+  })();
+  let zoomPercent = Math.round((fontPt / 11) * 100);
   let reloadPillTimer = null;
   let toastTimer = null;
 
@@ -366,6 +394,7 @@
     hasSavedToken: Boolean(initCfg.clickup?.hasSavedToken),
     selectedTeamId: initCfg.clickup?.selectedTeamId || '',
     currentUserId: null,
+    areaFilter: localStorage.getItem('mdv-cu-area') || 'all',
     assigneeFilter: localStorage.getItem('mdv-cu-assignee') || 'all', // 'all' | 'unassigned' | String(userId)
     onlyWithTerminal: localStorage.getItem('mdv-cu-only-terms') === '1',
     page: 0,
@@ -659,9 +688,22 @@
     return (TERM_FONTS[key] || TERM_FONTS.iosevka).stack;
   }
 
+  const CU_AREA_META = {
+    all: { color: '#94a3b8', shortLabel: 'Todas las áreas' },
+    'Producto (Sietea y Sieteav2)': { color: '#ef4444', shortLabel: 'Sietea y Sieteav2' },
+    'Producto (Dashboard y móvil)': { color: '#22c55e', shortLabel: 'Dashboard y móvil' },
+    'Producto Interno': { color: '#8b5cf6', shortLabel: 'Producto Interno' },
+    'Infraestructura y seguridad': { color: '#f97316', shortLabel: 'Infraestructura' },
+    'Automatizaciones Operativas': { color: '#38bdf8', shortLabel: 'Automatizaciones Op.' },
+    unclassified: { color: '#64748b', shortLabel: 'Sin área' }
+  };
+
   let activeOpenCombobox = null;
 
-  function createMdvCombobox(selectEl, { kind = 'default', filterPlaceholder = 'Filtrar opciones...' } = {}) {
+  function createMdvCombobox(
+    selectEl,
+    { kind = 'default', filterPlaceholder = 'Filtrar opciones...', searchable = true, getDynamicHint = null } = {}
+  ) {
     if (!selectEl) return null;
     selectEl.classList.add('mdv-native-select-hidden');
 
@@ -694,8 +736,9 @@
     const popover = document.createElement('div');
     popover.className = 'mdv-combobox-popover';
     popover.hidden = true;
+    popover.tabIndex = -1;
     popover.innerHTML = `
-      <div class="mdv-combobox-search-wrap">
+      <div class="mdv-combobox-search-wrap"${searchable ? '' : ' hidden'}>
         <svg class="mdv-combobox-search-icon" viewBox="0 0 16 16" width="12" height="12" fill="none"><circle cx="7" cy="7" r="4.8" stroke="currentColor" stroke-width="1.5"/><path d="M10.6 10.6L14 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
         <input type="text" class="mdv-combobox-search" placeholder="${escapeHtmlAttr(filterPlaceholder)}" autocomplete="off" spellcheck="false" />
       </div>
@@ -717,6 +760,13 @@
       if (kind === 'font') {
         return `<span class="mdv-combobox-font-icon">Aa</span>`;
       }
+      if (kind === 'fontsize') {
+        return `<span class="mdv-combobox-size-icon">T</span>`;
+      }
+      if (kind === 'area') {
+        const col = CU_AREA_META[val]?.color || '#64748b';
+        return `<span class="mdv-combobox-area-dot" style="background:${col}"></span>`;
+      }
       const ch = String(text || 'W').trim().charAt(0).toUpperCase() || 'W';
       return `<span class="mdv-combobox-ws-icon">${escapeHtmlAttr(ch)}</span>`;
     };
@@ -725,11 +775,15 @@
       Array.from(selectEl.options).map((opt) => {
         let hint = '';
         let previewFont = '';
-        if (kind === 'theme') {
+        if (typeof getDynamicHint === 'function') {
+          hint = getDynamicHint(opt.value) || '';
+        } else if (kind === 'theme') {
           hint = THEME_COMBO_META[opt.value]?.hint || '';
         } else if (kind === 'font') {
           hint = isTermFontInstalled(opt.value) ? 'Instalada' : '';
           previewFont = TERM_FONTS[opt.value]?.stack || '';
+        } else if (kind === 'fontsize' && opt.value === '11') {
+          hint = 'Base';
         }
         return {
           value: opt.value,
@@ -754,7 +808,9 @@
 
     const positionPopover = () => {
       const rect = trigger.getBoundingClientRect();
-      const popWidth = Math.max(rect.width, kind === 'theme' ? 204 : kind === 'font' ? 236 : 228);
+      const minW =
+        kind === 'fontsize' ? 128 : kind === 'theme' ? 204 : kind === 'font' ? 236 : kind === 'area' ? 256 : 228;
+      const popWidth = Math.max(rect.width, minW);
       popover.style.width = `${Math.round(popWidth)}px`;
 
       let left = rect.left;
@@ -855,7 +911,14 @@
       root.classList.add('is-open');
       trigger.setAttribute('aria-expanded', 'true');
       positionPopover();
-      requestAnimationFrame(() => searchInput.focus());
+      requestAnimationFrame(() => {
+        updateHighlightDom();
+        if (searchable) {
+          searchInput.focus();
+        } else {
+          popover.focus();
+        }
+      });
     };
 
     trigger.addEventListener('click', (e) => {
@@ -876,7 +939,7 @@
       renderList();
     });
 
-    searchInput.addEventListener('keydown', (e) => {
+    const handleNavKey = (e) => {
       if (e.key === 'ArrowDown') {
         e.preventDefault();
         e.stopPropagation();
@@ -900,6 +963,12 @@
         e.stopPropagation();
         close({ restoreTerminalFocus: true });
       }
+    };
+
+    searchInput.addEventListener('keydown', handleNavKey);
+    popover.addEventListener('keydown', (e) => {
+      if (e.target === searchInput) return;
+      handleNavKey(e);
     });
 
     listEl.addEventListener('mousemove', (e) => {
@@ -958,9 +1027,11 @@
     activeOpenCombobox?.positionPopover?.();
   });
 
+  let fontPtCombobox = null;
   let termFontCombobox = null;
   let themeCombobox = null;
   let cuTeamCombobox = null;
+  let cuAreaCombobox = null;
 
   function applyTermFont(fontKey, persist = true) {
     const validKey = TERM_FONTS[fontKey] ? fontKey : 'iosevka';
@@ -1029,19 +1100,26 @@
     showToast(`Tema: ${next}`);
   }
 
-  function computeTermFontSize(pct) {
-    return Math.max(5, Math.min(32, Math.round((15 * pct) / 100)));
+  function ptToCssPx(pt) {
+    return Math.max(6, Math.min(36, +((Number(pt) || 11) * (4 / 3)).toFixed(2)));
   }
 
-  function applyZoom(pct, announce = true) {
-    zoomPercent = Math.min(220, Math.max(30, Math.round(pct)));
-    if (btnFontReset) btnFontReset.textContent = `${zoomPercent}%`;
+  function computeTermFontSize() {
+    return ptToCssPx(fontPt);
+  }
+
+  function applyFontPt(nextPt, announce = true) {
+    fontPt = snapToNearestPt(nextPt);
+    zoomPercent = Math.round((fontPt / 11) * 100);
+    if (fontPtSelect) fontPtSelect.value = String(fontPt);
+    fontPtCombobox?.syncFromSelect();
+    localStorage.setItem('mdv-font-pt', String(fontPt));
     localStorage.setItem('mdv-zoom', String(zoomPercent));
 
     for (const mp of mdPanes.values()) {
       mp.article.style.fontSize = `${zoomPercent}%`;
     }
-    const termPx = computeTermFontSize(zoomPercent);
+    const termPx = computeTermFontSize();
     for (const tp of termPanes.values()) {
       if (tp.term) {
         tp.term.options.fontSize = termPx;
@@ -1054,9 +1132,16 @@
     }
 
     if (announce) {
-      savePrefs({ zoom: zoomPercent });
-      showToast(`Letra: ${zoomPercent}%`);
+      savePrefs({ font_pt: fontPt, zoom: zoomPercent });
+      showToast(`Tamaño: ${fontPt} pt`);
     }
+  }
+
+  function stepFontPt(deltaSteps) {
+    const curIdx = FONT_PT_OPTIONS.indexOf(fontPt);
+    const baseIdx = curIdx >= 0 ? curIdx : FONT_PT_OPTIONS.indexOf(11);
+    const nextIdx = Math.max(0, Math.min(FONT_PT_OPTIONS.length - 1, baseIdx + deltaSteps));
+    applyFontPt(FONT_PT_OPTIONS[nextIdx], true);
   }
 
   function toggleFilesPanel() {
@@ -1417,7 +1502,7 @@
     const rebuildFontsAndMetrics = () => {
       const dpr = browserService?.dpr || window.devicePixelRatio || 1;
       const opts = optionsService.rawOptions;
-      const fontPx = Math.max(5, Math.round((opts.fontSize || 15) * dpr));
+      const fontPx = Math.max(5, +((opts.fontSize || 14.67) * dpr).toFixed(2));
       const fam = opts.fontFamily || 'monospace';
       const wNorm = opts.fontWeight || 'normal';
       const wBold = opts.fontWeightBold || 'bold';
@@ -1451,11 +1536,19 @@
       const opts = optionsService.rawOptions;
       const cols = Math.max(1, bufferService.cols || 80);
       const rows = Math.max(1, bufferService.rows || 24);
-      const rawCharW = charSizeService.width || 8.5;
-      const rawCharH = charSizeService.height || (opts.fontSize || 15) * 1.15;
+      const fontPx = Math.max(5, +((opts.fontSize || 14.67) * dpr).toFixed(2));
+      atlasCtx.font = `${opts.fontWeight || 'normal'} ${fontPx}px ${opts.fontFamily || 'monospace'}`;
+      const m = atlasCtx.measureText('W');
+      const measuredDevW = m.width > 1 ? m.width : (charSizeService.width || 8.5) * dpr;
+      const measuredDevH =
+        typeof m.fontBoundingBoxAscent === 'number' &&
+        typeof m.fontBoundingBoxDescent === 'number' &&
+        m.fontBoundingBoxAscent > 0
+          ? m.fontBoundingBoxAscent + m.fontBoundingBoxDescent
+          : (charSizeService.height || (opts.fontSize || 14.67) * 1.18) * dpr;
 
-      const devCharW = Math.max(1, Math.round(rawCharW * dpr));
-      const devCharH = Math.max(1, Math.ceil(rawCharH * dpr));
+      const devCharW = Math.max(1, Math.round(measuredDevW));
+      const devCharH = Math.max(1, Math.round(measuredDevH));
       const letterSp = Math.round((opts.letterSpacing || 0) * dpr);
       const devCellW = Math.max(1, devCharW + letterSp);
       const devCellH = Math.max(1, Math.floor(devCharH * (opts.lineHeight || 1)));
@@ -3344,6 +3437,11 @@
     });
   });
 
+    if (fontPtSelect) fontPtSelect.value = String(fontPt);
+  fontPtCombobox = createMdvCombobox(fontPtSelect, {
+    kind: 'fontsize',
+    searchable: false
+  });
   if (termFontSelect) termFontSelect.value = currentTermFontKey;
   termFontCombobox = createMdvCombobox(termFontSelect, {
     kind: 'font',
@@ -3357,6 +3455,20 @@
     kind: 'workspace',
     filterPlaceholder: 'Filtrar workspace...'
   });
+  if (cuAreaSelect) cuAreaSelect.value = cuState.areaFilter || 'all';
+  cuAreaCombobox = createMdvCombobox(cuAreaSelect, {
+    kind: 'area',
+    filterPlaceholder: 'Filtrar área...',
+    getDynamicHint(val) {
+      const base = getAreaBasePipelineTasks();
+      if (val === 'all') return String(base.length);
+      if (val === 'unclassified') {
+        return String(base.filter((t) => !Array.isArray(t.areas) || t.areas.length === 0).length);
+      }
+      return String(base.filter((t) => Array.isArray(t.areas) && t.areas.includes(val)).length);
+    }
+  });
+  fontPtSelect?.addEventListener('change', (e) => applyFontPt(Number(e.target.value), true));
   termFontSelect?.addEventListener('change', (e) => applyTermFont(e.target.value, true));
   themeSelect?.addEventListener('change', (e) => applyTheme(e.target.value, true));
   btnFiles?.addEventListener('click', toggleFilesPanel);
@@ -3368,9 +3480,6 @@
   btnSplitH?.addEventListener('click', () => splitMarkdownPane(focusedMdPaneId, 'horizontal'));
   btnTermV?.addEventListener('click', () => splitTerminalPane(focusedTermPaneId, 'vertical'));
   btnTermH?.addEventListener('click', () => splitTerminalPane(focusedTermPaneId, 'horizontal'));
-  btnFontDec?.addEventListener('click', () => applyZoom(zoomPercent - 10));
-  btnFontReset?.addEventListener('click', () => applyZoom(100));
-  btnFontInc?.addEventListener('click', () => applyZoom(zoomPercent + 10));
   btnSearch?.addEventListener('click', () => openSearchBar());
   btnHelp?.addEventListener('click', () => toggleHelpModal());
 
@@ -4508,15 +4617,15 @@
         case '+':
         case '=':
           e.preventDefault();
-          applyZoom(zoomPercent + 10);
+          stepFontPt(1);
           break;
         case '-':
           e.preventDefault();
-          applyZoom(zoomPercent - 10);
+          stepFontPt(-1);
           break;
         case '0':
           e.preventDefault();
-          applyZoom(100);
+          applyFontPt(11, true);
           break;
         case 'r':
           e.preventDefault();
@@ -4848,9 +4957,68 @@
     return getMergedAllKnownTasks().filter((t) => !isHiddenClickUpStatus(t));
   }
 
-  function getScopedPipelineTasks() {
+  function getAreaBasePipelineTasks() {
     const allActive = getActivePipelineTasks();
     return cuState.onlyWithTerminal ? allActive.filter(taskHasOpenTerminal) : allActive;
+  }
+
+  function taskMatchesAreaFilter(task, areaFilter = cuState.areaFilter) {
+    if (!areaFilter || areaFilter === 'all') return true;
+    const areas = Array.isArray(task?.areas) ? task.areas : [];
+    if (areaFilter === 'unclassified') return areas.length === 0;
+    return areas.includes(areaFilter);
+  }
+
+  function syncClickUpAreaSelectOptions() {
+    if (!cuAreaSelect) return;
+    const baseTasks = getAreaBasePipelineTasks();
+    const fixedOrder = [
+      'Producto (Sietea y Sieteav2)',
+      'Producto (Dashboard y móvil)',
+      'Producto Interno',
+      'Infraestructura y seguridad',
+      'Automatizaciones Operativas'
+    ];
+    const discoveredExtras = new Set();
+    let unclassifiedCount = 0;
+    for (const t of baseTasks) {
+      const areas = Array.isArray(t.areas) ? t.areas : [];
+      if (areas.length === 0) {
+        unclassifiedCount++;
+      } else {
+        for (const a of areas) {
+          if (a && !fixedOrder.includes(a)) discoveredExtras.add(a);
+        }
+      }
+    }
+
+    const opts = [{ value: 'all', label: 'Todas las áreas' }];
+    for (const a of fixedOrder) {
+      opts.push({ value: a, label: CU_AREA_META[a]?.shortLabel || a });
+    }
+    for (const extra of Array.from(discoveredExtras).sort()) {
+      opts.push({ value: extra, label: extra });
+    }
+    if (unclassifiedCount > 0) {
+      opts.push({ value: 'unclassified', label: 'Sin área' });
+    }
+
+    if (!opts.some((o) => o.value === cuState.areaFilter)) {
+      cuState.areaFilter = 'all';
+      localStorage.setItem('mdv-cu-area', 'all');
+    }
+
+    cuAreaSelect.innerHTML = opts
+      .map(
+        (o) =>
+          `<option value="${escapeHtmlText(o.value)}"${o.value === cuState.areaFilter ? ' selected' : ''}>${escapeHtmlText(o.label)}</option>`
+      )
+      .join('');
+    cuAreaCombobox?.syncFromSelect();
+  }
+
+  function getScopedPipelineTasks() {
+    return getAreaBasePipelineTasks().filter((t) => taskMatchesAreaFilter(t));
   }
 
   function buildAssigneeSubTabs() {
@@ -5003,6 +5171,7 @@
       if (exactIdMatch) return true;
 
       if (cuState.onlyWithTerminal && !taskHasOpenTerminal(t)) return false;
+      if (!taskMatchesAreaFilter(t)) return false;
 
       // For normal text search, keep hiding done/todo/next unless pinned, and respect active assignee tab
       if (isHiddenClickUpStatus(t) && !cuState.pinnedTasks.has(t.id)) return false;
@@ -5247,6 +5416,7 @@
   function renderClickUpTasksList() {
     syncAllTerminalTaskStatusColors();
     if (!cuTaskListEl) return;
+    syncClickUpAreaSelectOptions();
     renderClickUpAssigneeTabs();
     const activeTasks = getActivePipelineTasks();
     const withTermCount = activeTasks.filter(taskHasOpenTerminal).length;
@@ -5324,6 +5494,15 @@
             `<span class="mdv-cu-avatar" title="${escapeHtmlText(a.name)}">${escapeHtmlText(a.initials)}</span>`
         )
         .join('');
+      const areasHtml = (t.areas || [])
+        .slice(0, 2)
+        .map((areaName) => {
+          const meta = CU_AREA_META[areaName];
+          const dotColor = meta?.color || '#64748b';
+          const shortLbl = meta?.shortLabel || areaName;
+          return `<span class="mdv-cu-area-tag" title="${escapeHtmlText(areaName)}"><span class="mdv-cu-area-tag-dot" style="background:${dotColor}"></span><span>${escapeHtmlText(shortLbl)}</span></span>`;
+        })
+        .join('');
 
       const paneId = taskTerminals.get(t.id);
       const termPane = paneId ? termPanes.get(paneId) : null;
@@ -5365,6 +5544,7 @@
           <div class="mdv-cu-task-title">${escapeHtmlText(t.name)}</div>
           <div class="mdv-cu-pr-slot" data-cu-pr-slot${prRowsHtml ? '' : ' hidden'}>${prRowsHtml}</div>
           <div class="mdv-cu-task-meta">
+            ${areasHtml}
             ${crumb ? `<span class="mdv-cu-list-crumb" title="${escapeHtmlText(crumb)}">${escapeHtmlText(crumb)}</span>` : ''}
             ${prioHtml}
             ${updated ? `<span>${escapeHtmlText(updated)}</span>` : ''}
@@ -5689,6 +5869,14 @@
     loadClickUpTasks({ reset: true });
   });
 
+  cuAreaSelect?.addEventListener('change', () => {
+    cuState.areaFilter = cuAreaSelect.value || 'all';
+    localStorage.setItem('mdv-cu-area', cuState.areaFilter);
+    cuState.selectedIdx = -1;
+    renderClickUpAssigneeTabs();
+    renderClickUpTasksList();
+  });
+
   cuAssigneeTabsEl?.addEventListener('click', (e) => {
     const btn = e.target.closest('[data-cu-assignee]');
     if (!btn) return;
@@ -5986,7 +6174,7 @@
     rootTermPane.boot();
   }
 
-  applyZoom(zoomPercent, false);
+  applyFontPt(fontPt, false);
   initCarouselsForPane(rootMdPane);
   renderMermaidDiagrams(rootMdPane.article).then(() => initHorizontalBlockScrollbars(rootMdPane.article));
   initHorizontalBlockScrollbars(rootMdPane.article);

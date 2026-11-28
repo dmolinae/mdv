@@ -85,6 +85,7 @@ pub struct ClickUpTaskSummary {
     pub priority_color: Option<String>,
     pub list_name: Option<String>,
     pub folder_name: Option<String>,
+    pub areas: Vec<String>,
     pub assignees: Vec<ClickUpAssigneeSummary>,
     pub url: String,
     pub date_updated: Option<String>,
@@ -756,6 +757,334 @@ fn initials_from_name(name: &str) -> String {
         .to_uppercase()
 }
 
+const AREA_SIETEA: &str = "Producto (Sietea y Sieteav2)";
+const AREA_DASHBOARD: &str = "Producto (Dashboard y móvil)";
+const AREA_INTERNO: &str = "Producto Interno";
+const AREA_INFRA: &str = "Infraestructura y seguridad";
+const AREA_AUTO_OP: &str = "Automatizaciones Operativas";
+
+fn push_area_unique(areas: &mut Vec<String>, area: &str) {
+    let trimmed = area.trim();
+    if !trimmed.is_empty() && !areas.iter().any(|a| a.eq_ignore_ascii_case(trimmed)) {
+        areas.push(trimmed.to_string());
+    }
+}
+
+fn canonicalize_area_label(raw: &str) -> Option<&'static str> {
+    let low = raw.trim().to_lowercase();
+    if low.is_empty() {
+        return None;
+    }
+    if low.contains("sietea") {
+        Some(AREA_SIETEA)
+    } else if low.contains("dashboard") || low.contains("móvil") || low.contains("movil") || low.contains("experiencia digital") {
+        Some(AREA_DASHBOARD)
+    } else if low.contains("producto interno") {
+        Some(AREA_INTERNO)
+    } else if low.contains("infraestructura") || low.contains("seguridad") || low.contains("ciberseguridad") {
+        Some(AREA_INFRA)
+    } else if low.contains("automatizaciones") || low.contains("operativa") {
+        Some(AREA_AUTO_OP)
+    } else {
+        None
+    }
+}
+
+fn resolve_dropdown_selected_name(cf: &serde_json::Value) -> Option<String> {
+    let val = cf.get("value")?;
+    if val.is_null() {
+        return None;
+    }
+    if let Some(obj_name) = val
+        .get("name")
+        .or_else(|| val.get("label"))
+        .and_then(|v| v.as_str())
+    {
+        return Some(obj_name.to_string());
+    }
+    let options = cf
+        .get("type_config")
+        .and_then(|tc| tc.get("options"))
+        .and_then(|o| o.as_array());
+    if let Some(idx) = val.as_i64() {
+        if let Some(opts) = options {
+            for opt in opts {
+                let ord = opt.get("orderindex").and_then(|v| v.as_i64());
+                if ord == Some(idx) {
+                    if let Some(n) = opt
+                        .get("name")
+                        .or_else(|| opt.get("label"))
+                        .and_then(|v| v.as_str())
+                    {
+                        return Some(n.to_string());
+                    }
+                }
+            }
+            if idx >= 0 && (idx as usize) < opts.len() {
+                if let Some(n) = opts[idx as usize]
+                    .get("name")
+                    .or_else(|| opts[idx as usize].get("label"))
+                    .and_then(|v| v.as_str())
+                {
+                    return Some(n.to_string());
+                }
+            }
+        }
+    }
+    if let Some(val_str) = val.as_str() {
+        if let Some(opts) = options {
+            for opt in opts {
+                let oid = opt.get("id").and_then(|v| v.as_str());
+                let ord_str = opt
+                    .get("orderindex")
+                    .and_then(|v| v.as_i64())
+                    .map(|n| n.to_string());
+                if oid == Some(val_str) || ord_str.as_deref() == Some(val_str) {
+                    if let Some(n) = opt
+                        .get("name")
+                        .or_else(|| opt.get("label"))
+                        .and_then(|v| v.as_str())
+                    {
+                        return Some(n.to_string());
+                    }
+                }
+            }
+        }
+        return Some(val_str.to_string());
+    }
+    None
+}
+
+fn resolve_labels_selected_names(cf: &serde_json::Value) -> Vec<String> {
+    let mut out = Vec::new();
+    let Some(arr) = cf.get("value").and_then(|v| v.as_array()) else {
+        return out;
+    };
+    let options = cf
+        .get("type_config")
+        .and_then(|tc| tc.get("options"))
+        .and_then(|o| o.as_array());
+    for item in arr {
+        if let Some(lbl) = item
+            .get("label")
+            .or_else(|| item.get("name"))
+            .and_then(|v| v.as_str())
+        {
+            out.push(lbl.to_string());
+            continue;
+        }
+        if let Some(id_str) = item.as_str() {
+            if let Some(opts) = options {
+                if let Some(found) = opts.iter().find(|o| o.get("id").and_then(|v| v.as_str()) == Some(id_str)) {
+                    if let Some(lbl) = found
+                        .get("label")
+                        .or_else(|| found.get("name"))
+                        .and_then(|v| v.as_str())
+                    {
+                        out.push(lbl.to_string());
+                        continue;
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+fn extract_task_areas(
+    t: &serde_json::Value,
+    name: &str,
+    list_name: Option<&str>,
+    folder_name: Option<&str>,
+) -> Vec<String> {
+    let mut explicit_areas: Vec<String> = Vec::new();
+    let mut project_labels: Vec<String> = Vec::new();
+    let mut category_labels: Vec<String> = Vec::new();
+    let mut tipo_name: Option<String> = None;
+
+    if let Some(cfs) = t.get("custom_fields").and_then(|v| v.as_array()) {
+        for cf in cfs {
+            let cf_name = cf
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim()
+                .to_lowercase();
+            let cf_type = cf.get("type").and_then(|v| v.as_str()).unwrap_or("");
+
+            if cf_name == "área" || cf_name == "area" {
+                if let Some(sel) = resolve_dropdown_selected_name(cf) {
+                    if let Some(canon) = canonicalize_area_label(&sel) {
+                        push_area_unique(&mut explicit_areas, canon);
+                    } else if sel.to_lowercase().contains("todo el equipo") {
+                        for all_a in [AREA_SIETEA, AREA_DASHBOARD, AREA_INTERNO, AREA_INFRA, AREA_AUTO_OP] {
+                            push_area_unique(&mut explicit_areas, all_a);
+                        }
+                    } else {
+                        push_area_unique(&mut explicit_areas, &sel);
+                    }
+                }
+            } else if cf_name == "equipos" || cf_name == "equipo" {
+                for lbl in resolve_labels_selected_names(cf) {
+                    if let Some(canon) = canonicalize_area_label(&lbl) {
+                        push_area_unique(&mut explicit_areas, canon);
+                    } else {
+                        push_area_unique(&mut explicit_areas, &lbl);
+                    }
+                }
+            } else if cf_name == "proyecto" || cf_name == "proyectos" {
+                if cf_type == "labels" {
+                    project_labels.extend(resolve_labels_selected_names(cf));
+                } else if let Some(sel) = resolve_dropdown_selected_name(cf) {
+                    project_labels.push(sel);
+                }
+            } else if cf_name == "categorias" || cf_name == "categorías" || cf_name == "categoria" {
+                if cf_type == "labels" {
+                    category_labels.extend(resolve_labels_selected_names(cf));
+                }
+            } else if cf_name == "tipo" {
+                tipo_name = resolve_dropdown_selected_name(cf);
+            }
+        }
+    }
+
+    if !explicit_areas.is_empty() {
+        return explicit_areas;
+    }
+
+    let mut derived: Vec<String> = Vec::new();
+
+    // Map Fintree `Proyecto` labels to official Fintree Areas
+    for proj in &project_labels {
+        let p = proj.trim().to_lowercase();
+        match p.as_str() {
+            "sietea" | "sieteav2" | "sieta" | "template" => {
+                push_area_unique(&mut derived, AREA_SIETEA);
+            }
+            "dashboard" | "app móvil" | "app movil" | "web" => {
+                push_area_unique(&mut derived, AREA_DASHBOARD);
+            }
+            "client-manager"
+            | "client manager"
+            | "admin-fintree"
+            | "scrapper-manager"
+            | "scrapper manager"
+            | "emailpush notifier"
+            | "dev-workspace"
+            | "openclaw" => {
+                push_area_unique(&mut derived, AREA_INTERNO);
+            }
+            "ansible"
+            | "ansible y servidores"
+            | "keycloak"
+            | "sftp"
+            | "gatekeeper"
+            | "sftp-infra"
+            | "semaphore" => {
+                push_area_unique(&mut derived, AREA_INFRA);
+            }
+            "refinitiv" => {
+                push_area_unique(&mut derived, AREA_AUTO_OP);
+            }
+            _ => {}
+        }
+    }
+
+    // List / Folder / Categorias / Tipo signals
+    let list_low = list_name.unwrap_or("").to_lowercase();
+    let folder_low = folder_name.unwrap_or("").to_lowercase();
+    if list_low.contains("ciberseguridad") || folder_low.contains("infraestructura") {
+        push_area_unique(&mut derived, AREA_INFRA);
+    } else if list_low.contains("backoffice") {
+        push_area_unique(&mut derived, AREA_AUTO_OP);
+    } else if let Some(canon) = canonicalize_area_label(&folder_low) {
+        push_area_unique(&mut derived, canon);
+    }
+
+    if let Some(ref tp) = tipo_name {
+        let tl = tp.to_lowercase();
+        if tl.contains("ciberseguridad") || tl.contains("vulnerabilidad") {
+            push_area_unique(&mut derived, AREA_INFRA);
+        } else if tl == "app" {
+            push_area_unique(&mut derived, AREA_DASHBOARD);
+        }
+    }
+
+    for cat in &category_labels {
+        let cl = cat.to_lowercase();
+        if cl.contains("infraestructura") || cl.contains("seguridad") || cl.contains("gatekeeper") {
+            push_area_unique(&mut derived, AREA_INFRA);
+        } else if cl.contains("scraper") || cl.contains("automatización") || cl.contains("automatizacion") || cl.contains("operativo") {
+            push_area_unique(&mut derived, AREA_AUTO_OP);
+        } else if cl.contains("dashboard") || cl.contains("app móvil") || cl.contains("app movil") {
+            push_area_unique(&mut derived, AREA_DASHBOARD);
+        }
+    }
+
+    // Smart title fallback for CLI-created tasks with empty custom_fields
+    if derived.is_empty() {
+        let title_low = name.to_lowercase();
+        if title_low.contains("client-manager")
+            || title_low.contains("client manager")
+            || title_low.contains("scrapper-manager")
+            || title_low.contains("scrapper manager")
+            || title_low.contains("admin-fintree")
+            || title_low.contains("lector de documentos")
+            || title_low.contains("pdf extractor")
+            || title_low.contains("worktree")
+            || title_low.contains("close-task")
+            || title_low.starts_with("skill ")
+            || title_low.contains("dev-workspace")
+        {
+            push_area_unique(&mut derived, AREA_INTERNO);
+        }
+        if title_low.contains("ansible")
+            || title_low.contains("psqlbackup")
+            || title_low.contains("backup")
+            || title_low.contains("nautilus")
+            || title_low.contains("arca")
+            || title_low.contains("docker")
+            || title_low.contains("sftp")
+            || title_low.contains("keycloak")
+            || title_low.contains("gatekeeper")
+            || title_low.contains("dependabot")
+            || title_low.contains("ubuntu")
+            || title_low.contains("db.py")
+            || title_low.contains("monitoreo")
+            || title_low.contains("servidor")
+        {
+            push_area_unique(&mut derived, AREA_INFRA);
+        }
+        if title_low.contains("cartola")
+            || title_low.contains("importación")
+            || title_low.contains("importacion")
+            || title_low.contains("nemos ")
+            || title_low.contains("scraper")
+            || title_low.contains("refinitiv")
+            || title_low.contains("cuadratura")
+        {
+            push_area_unique(&mut derived, AREA_AUTO_OP);
+        }
+        if title_low.contains("dashboard") || title_low.contains("app móvil") || title_low.contains("app movil") {
+            push_area_unique(&mut derived, AREA_DASHBOARD);
+        }
+        if derived.is_empty()
+            && (title_low.contains("sietea")
+                || title_low.contains("propuesta")
+                || title_low.contains("statement")
+                || title_low.contains("rentabilidad")
+                || title_low.contains("custodio")
+                || title_low.contains("template")
+                || title_low.contains("redis")
+                || title_low.contains("reporte"))
+        {
+            push_area_unique(&mut derived, AREA_SIETEA);
+        }
+    }
+
+    derived
+}
+
 fn parse_task_item(t: &serde_json::Value) -> Option<ClickUpTaskSummary> {
     let id = t.get("id")?.as_str()?.to_string();
     let custom_id = t
@@ -866,6 +1195,8 @@ fn parse_task_item(t: &serde_json::Value) -> Option<ClickUpTaskSummary> {
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
 
+    let areas = extract_task_areas(t, &name, list_name.as_deref(), folder_name.as_deref());
+
     Some(ClickUpTaskSummary {
         id,
         custom_id,
@@ -877,6 +1208,7 @@ fn parse_task_item(t: &serde_json::Value) -> Option<ClickUpTaskSummary> {
         priority_color,
         list_name,
         folder_name,
+        areas,
         assignees,
         url,
         date_updated,

@@ -324,6 +324,37 @@ html.is-native-win .mdv-topbar {
   max-width: 178px;
 }
 
+.mdv-combobox.is-fontsize .mdv-combobox-trigger {
+  min-width: 82px;
+  max-width: 96px;
+  font-variant-numeric: tabular-nums;
+}
+
+.mdv-combobox-size-icon {
+  font-size: 0.68rem;
+  font-weight: 750;
+  color: var(--accent);
+  font-family: inherit;
+  letter-spacing: -0.02em;
+  flex-shrink: 0;
+}
+
+.mdv-combobox.is-area .mdv-combobox-trigger {
+  min-width: 150px;
+  max-width: 224px;
+}
+
+.mdv-combobox-area-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+.mdv-combobox-search-wrap[hidden] {
+  display: none !important;
+}
+
 .mdv-combobox-label {
   flex: 1 1 auto;
   min-width: 0;
@@ -3276,6 +3307,27 @@ body.hide-toc #mdv-tab-markdown > .mdv-sidebar-toc {
   text-overflow: ellipsis;
   white-space: nowrap;
   max-width: 240px;
+}
+
+.mdv-cu-area-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.mdv-cu-area-tag-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  flex-shrink: 0;
 }
 
 .mdv-cu-priority {

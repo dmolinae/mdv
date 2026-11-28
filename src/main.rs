@@ -126,6 +126,8 @@ pub(crate) struct UserConfig {
     pub wide: bool,
     #[serde(default = "default_zoom")]
     pub zoom: u32,
+    #[serde(default = "default_font_pt")]
+    pub font_pt: f32,
     #[serde(default = "default_term_font")]
     pub term_font: String,
     #[serde(default)]
@@ -141,6 +143,9 @@ fn default_theme() -> String {
 fn default_zoom() -> u32 {
     100
 }
+fn default_font_pt() -> f32 {
+    11.0
+}
 fn default_term_font() -> String {
     "iosevka".to_string()
 }
@@ -152,6 +157,7 @@ impl Default for UserConfig {
             theme: default_theme(),
             wide: false,
             zoom: 100,
+            font_pt: default_font_pt(),
             term_font: default_term_font(),
             clickup: clickup::ClickUpConfig::default(),
         }
@@ -599,6 +605,7 @@ fn build_html_shell(
         "dirMode": effective_dir_mode,
         "defaultTheme": state.default_theme,
         "defaultZoom": user_cfg.zoom,
+        "defaultFontPt": user_cfg.font_pt,
         "defaultTermFont": user_cfg.term_font,
         "maximized": user_cfg.maximized,
         "savedWorkspaceState": load_workspace_state(&state.workspace_dir),
@@ -648,7 +655,7 @@ fn build_html_shell(
   <link rel="stylesheet" href="/vendor/overlayscrollbars/overlayscrollbars.min.css" />
   <link rel="stylesheet" href="/vendor/xterm/xterm.css" />
   <link rel="stylesheet" href="/vendor/katex/katex.min.css" />
-  <link rel="stylesheet" href="/assets/styles.css?v=2.14.0" />
+  <link rel="stylesheet" href="/assets/styles.css?v=2.15.0" />
 </head>
 <body class="{body_cls_str}">
   <div class="mdv-win-resize-ring" aria-hidden="true">
@@ -700,11 +707,27 @@ fn build_html_shell(
         </button>
       </div>
 
-      <div class="mdv-btn-pill-group" role="group" aria-label="Tamaño de letra">
-        <button type="button" id="mdv-font-dec" class="mdv-tool-btn mdv-font-btn" title="Achicar letra (-)">A−</button>
-        <button type="button" id="mdv-font-reset" class="mdv-tool-btn mdv-font-pct" title="Restablecer tamaño (0)">{zoom}%</button>
-        <button type="button" id="mdv-font-inc" class="mdv-tool-btn mdv-font-btn" title="Agrandar letra (+)">A+</button>
-      </div>
+      <select id="mdv-font-pt-select" class="mdv-theme-select" aria-label="Tamaño de letra (pt)" title="Tamaño de letra en pt (- / + / 0)">
+        <option value="6">6 pt</option>
+        <option value="6.5">6.5 pt</option>
+        <option value="7">7 pt</option>
+        <option value="7.5">7.5 pt</option>
+        <option value="8">8 pt</option>
+        <option value="8.5">8.5 pt</option>
+        <option value="9">9 pt</option>
+        <option value="9.5">9.5 pt</option>
+        <option value="10">10 pt</option>
+        <option value="10.5">10.5 pt</option>
+        <option value="11" selected>11 pt</option>
+        <option value="11.5">11.5 pt</option>
+        <option value="12">12 pt</option>
+        <option value="13">13 pt</option>
+        <option value="14">14 pt</option>
+        <option value="15">15 pt</option>
+        <option value="16">16 pt</option>
+        <option value="18">18 pt</option>
+        <option value="20">20 pt</option>
+      </select>
 
       <select id="mdv-term-font-select" class="mdv-theme-select" aria-label="Fuente de la terminal" title="Cambiar fuente de las terminales">
         <option value="iosevka">Iosevka Term</option>
@@ -868,6 +891,14 @@ fn build_html_shell(
           <div class="mdv-cu-filterbar">
             <div class="mdv-cu-filterbar-top">
               <select id="mdv-cu-team-select" class="mdv-theme-select mdv-cu-team-select" title="Workspace de ClickUp"></select>
+              <select id="mdv-cu-area-select" class="mdv-theme-select mdv-cu-area-select" aria-label="Filtrar por área" title="Filtrar tareas según área">
+                <option value="all">Todas las áreas</option>
+                <option value="Producto (Sietea y Sieteav2)">Producto (Sietea y Sieteav2)</option>
+                <option value="Producto (Dashboard y móvil)">Producto (Dashboard y móvil)</option>
+                <option value="Producto Interno">Producto Interno</option>
+                <option value="Infraestructura y seguridad">Infraestructura y seguridad</option>
+                <option value="Automatizaciones Operativas">Automatizaciones Operativas</option>
+              </select>
               <span id="mdv-cu-user-badge" class="mdv-cu-user-badge" title="Usuario conectado"></span>
             </div>
             <div id="mdv-cu-assignee-scroll" class="mdv-cu-assignee-scroll" data-overlayscrollbars-initialize>
@@ -926,7 +957,7 @@ fn build_html_shell(
   <script src="/vendor/highlight/highlight.min.js"></script>
   <script src="/vendor/katex/katex.min.js"></script>
   <script src="/vendor/mermaid/mermaid.min.js"></script>
-  <script src="/assets/app.js?v=2.14.0"></script>
+  <script src="/assets/app.js?v=2.15.0"></script>
 </body>
 </html>"#,
         theme = workspace::escape_html_attr(&state.default_theme),
@@ -939,7 +970,6 @@ fn build_html_shell(
         ws_name = workspace::escape_html_attr(&workspace_name),
         ws_full = workspace::escape_html_attr(&state.workspace_dir.to_string_lossy()),
         rel_display = workspace::escape_html_attr(&rel_display),
-        zoom = user_cfg.zoom,
         tree_html = tree_html,
         body_html = initial_body_html,
         toc_html = toc_html,
