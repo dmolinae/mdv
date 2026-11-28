@@ -2066,6 +2066,69 @@
     return renderer;
   }
 
+  async function copyTextToClipboard(text) {
+    if (!text) return false;
+    if (navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(text);
+        return true;
+      } catch {}
+    }
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      ta.style.pointerEvents = 'none';
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand('copy');
+      ta.remove();
+      if (ok) return true;
+    } catch {}
+    try {
+      const res = await fetch('/api/clipboard', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text })
+      });
+      if (res.ok) return true;
+    } catch {}
+    return false;
+  }
+
+  async function readTextFromClipboard() {
+    if (window.__MDV_CLIPBOARD_READY__ && navigator.clipboard?.readText) {
+      try {
+        return await navigator.clipboard.readText();
+      } catch {}
+    }
+    if (navigator.permissions?.query && navigator.clipboard?.readText) {
+      try {
+        const perm = await navigator.permissions.query({ name: 'clipboard-read' });
+        if (perm?.state === 'granted') {
+          return await navigator.clipboard.readText();
+        }
+      } catch {}
+    }
+    try {
+      const res = await fetch('/api/clipboard', { cache: 'no-store' });
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.ok && typeof data.text === 'string') {
+          return data.text;
+        }
+      }
+    } catch {}
+    if (navigator.clipboard?.readText) {
+      try {
+        return await navigator.clipboard.readText();
+      } catch {}
+    }
+    return '';
+  }
+
   function createTerminalPane({
     id: requestedId = '',
     cwd = '',
@@ -2292,6 +2355,57 @@
           try { attachFastCanvasRenderer(term); } catch {}
         }
 
+        // Right-click in terminal: copy active selection (and clear it), or paste clipboard when nothing is selected
+        let pendingRightClickSelection = '';
+        wrapEl.addEventListener(
+          'mousedown',
+          (ev) => {
+            if (ev.button !== 2) return;
+            pendingRightClickSelection = term.hasSelection() ? term.getSelection() : '';
+            if (focusZone !== 'terminal' || focusedTermPaneId !== id) {
+              setFocusZone('terminal', id, false);
+            }
+            ev.preventDefault();
+            ev.stopPropagation();
+          },
+          true
+        );
+        wrapEl.addEventListener(
+          'mouseup',
+          (ev) => {
+            if (ev.button !== 2) return;
+            ev.preventDefault();
+            ev.stopPropagation();
+          },
+          true
+        );
+        wrapEl.addEventListener(
+          'contextmenu',
+          async (ev) => {
+            ev.preventDefault();
+            ev.stopPropagation();
+            if (disposed || !term) return;
+            const selectedText =
+              (term.hasSelection() ? term.getSelection() : '') || pendingRightClickSelection;
+            pendingRightClickSelection = '';
+            if (focusZone !== 'terminal' || focusedTermPaneId !== id) {
+              setFocusZone('terminal', id, true);
+            } else {
+              term.focus();
+            }
+            if (selectedText) {
+              await copyTextToClipboard(selectedText);
+              term.clearSelection();
+            } else {
+              const clipText = await readTextFromClipboard();
+              if (clipText && !disposed) {
+                term.paste(clipText);
+              }
+            }
+          },
+          true
+        );
+
         // Pass app-level spatial & split shortcuts cleanly out of xterm
         term.attachCustomKeyEventHandler((ev) => {
           const isAltGraph = Boolean(ev.getModifierState && ev.getModifierState('AltGraph'));
@@ -2331,7 +2445,17 @@
               return false;
             }
             if (ev.code === 'KeyC' && term.hasSelection()) {
-              navigator.clipboard.writeText(term.getSelection()).catch(() => {});
+              if (ev.type === 'keydown') {
+                copyTextToClipboard(term.getSelection());
+              }
+              return false;
+            }
+            if (ev.code === 'KeyV') {
+              if (ev.type === 'keydown') {
+                readTextFromClipboard().then((txt) => {
+                  if (txt && !disposed) term.paste(txt);
+                });
+              }
               return false;
             }
           }
@@ -3796,6 +3920,7 @@
             <div class="mdv-help-row"><span>Split Right / Down en zona actual</span><span><kbd class="mdv-kbd">Ctrl+Alt+R</kbd> / <kbd class="mdv-kbd">Ctrl+Alt+D</kbd></span></div>
             <div class="mdv-help-row"><span>Forzar nuevo Split Terminal</span><span><kbd class="mdv-kbd">Alt+Shift+R</kbd> / <kbd class="mdv-kbd">Alt+Shift+D</kbd></span></div>
             <div class="mdv-help-row"><span>Cerrar terminal en foco</span><span><kbd class="mdv-kbd">Ctrl+Shift+W</kbd> / <kbd class="mdv-kbd">Ctrl+Alt+W</kbd></span></div>
+            <div class="mdv-help-row"><span>Copiar selección / Pegar</span><span><kbd class="mdv-kbd">Clic derecho</kbd> · <kbd class="mdv-kbd">Ctrl+Shift+C/V</kbd></span></div>
           </div>
           <div class="mdv-help-section">
             <h4>Tab Markdown (Archivos y Lectura)</h4>

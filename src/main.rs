@@ -957,7 +957,7 @@ fn build_html_shell(
   <script src="/vendor/highlight/highlight.min.js"></script>
   <script src="/vendor/katex/katex.min.js"></script>
   <script src="/vendor/mermaid/mermaid.min.js"></script>
-  <script src="/assets/app.js?v=2.15.0"></script>
+  <script src="/assets/app.js?v=2.15.2"></script>
 </body>
 </html>"#,
         theme = workspace::escape_html_attr(&state.default_theme),
@@ -1148,6 +1148,240 @@ async fn api_pty_kill_handler(
 ) -> impl IntoResponse {
     let killed = state.pty_mgr.kill_session(payload.session_id.trim());
     Json(serde_json::json!({ "ok": true, "killed": killed }))
+}
+
+#[derive(Deserialize)]
+struct SetClipboardPayload {
+    text: String,
+}
+
+fn read_system_clipboard() -> Option<String> {
+    #[cfg(unix)]
+    {
+        use std::process::{Command, Stdio};
+
+        let has_wslg_wayland = Path::new("/mnt/wslg/runtime-dir/wayland-0").exists();
+        if std::env::var_os("WAYLAND_DISPLAY").is_some() || has_wslg_wayland {
+            let mut cmd = Command::new("wl-paste");
+            cmd.arg("--no-newline")
+                .stdin(Stdio::null())
+                .stderr(Stdio::null());
+            if std::env::var_os("WAYLAND_DISPLAY").is_none() && has_wslg_wayland {
+                cmd.env("XDG_RUNTIME_DIR", "/mnt/wslg/runtime-dir")
+                    .env("WAYLAND_DISPLAY", "wayland-0");
+            }
+            if let Ok(out) = cmd.output() {
+                if out.status.success() {
+                    return Some(String::from_utf8_lossy(&out.stdout).into_owned());
+                }
+            }
+        }
+
+        let disp = std::env::var("DISPLAY")
+            .ok()
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or_else(|| ":0".to_string());
+
+        for xclip_args in [
+            &["-selection", "clipboard", "-t", "UTF8_STRING", "-o"][..],
+            &["-selection", "clipboard", "-o"][..],
+        ] {
+            if let Ok(out) = Command::new("xclip")
+                .args(xclip_args)
+                .env("DISPLAY", &disp)
+                .stdin(Stdio::null())
+                .stderr(Stdio::null())
+                .output()
+            {
+                if out.status.success() {
+                    return Some(String::from_utf8_lossy(&out.stdout).into_owned());
+                }
+            }
+        }
+
+        if let Ok(out) = Command::new("xsel")
+            .args(["--clipboard", "--output"])
+            .env("DISPLAY", &disp)
+            .stdin(Stdio::null())
+            .stderr(Stdio::null())
+            .output()
+        {
+            if out.status.success() {
+                return Some(String::from_utf8_lossy(&out.stdout).into_owned());
+            }
+        }
+
+        let ps_wsl = Path::new("/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe");
+        if ps_wsl.is_file() {
+            if let Ok(out) = Command::new(ps_wsl)
+                .args([
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-Sta",
+                    "-Command",
+                    "$c = Get-Clipboard -Raw; if ($null -ne $c) { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8; [Console]::Out.Write($c) }",
+                ])
+                .stdin(Stdio::null())
+                .stderr(Stdio::null())
+                .output()
+            {
+                if out.status.success() {
+                    return Some(String::from_utf8_lossy(&out.stdout).into_owned());
+                }
+            }
+        }
+        None
+    }
+
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        use std::process::{Command, Stdio};
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+        if let Ok(out) = Command::new("powershell.exe")
+            .args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-Sta",
+                "-Command",
+                "$c = Get-Clipboard -Raw; if ($null -ne $c) { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8; [Console]::Out.Write($c) }",
+            ])
+            .creation_flags(CREATE_NO_WINDOW)
+            .stdin(Stdio::null())
+            .stderr(Stdio::null())
+            .output()
+        {
+            if out.status.success() {
+                return Some(String::from_utf8_lossy(&out.stdout).into_owned());
+            }
+        }
+        None
+    }
+}
+
+fn write_system_clipboard(text: &str) -> bool {
+    #[cfg(unix)]
+    {
+        use std::io::Write;
+        use std::process::{Command, Stdio};
+
+        let has_wslg_wayland = Path::new("/mnt/wslg/runtime-dir/wayland-0").exists();
+        if std::env::var_os("WAYLAND_DISPLAY").is_some() || has_wslg_wayland {
+            let mut cmd = Command::new("wl-copy");
+            cmd.stdin(Stdio::piped())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null());
+            if std::env::var_os("WAYLAND_DISPLAY").is_none() && has_wslg_wayland {
+                cmd.env("XDG_RUNTIME_DIR", "/mnt/wslg/runtime-dir")
+                    .env("WAYLAND_DISPLAY", "wayland-0");
+            }
+            if let Ok(mut child) = cmd.spawn() {
+                if let Some(mut sin) = child.stdin.take() {
+                    let _ = sin.write_all(text.as_bytes());
+                }
+                if child.wait().map(|s| s.success()).unwrap_or(false) {
+                    return true;
+                }
+            }
+        }
+
+        let disp = std::env::var("DISPLAY")
+            .ok()
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or_else(|| ":0".to_string());
+
+        if let Ok(mut child) = Command::new("xclip")
+            .args(["-selection", "clipboard", "-i"])
+            .env("DISPLAY", &disp)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+        {
+            if let Some(mut sin) = child.stdin.take() {
+                let _ = sin.write_all(text.as_bytes());
+            }
+            if child.wait().map(|s| s.success()).unwrap_or(false) {
+                return true;
+            }
+        }
+
+        let ps_wsl = Path::new("/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe");
+        if ps_wsl.is_file() {
+            if let Ok(mut child) = Command::new(ps_wsl)
+                .args([
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-Sta",
+                    "-Command",
+                    "[Console]::InputEncoding = [System.Text.Encoding]::UTF8; $t = [Console]::In.ReadToEnd(); Set-Clipboard -Value $t",
+                ])
+                .stdin(Stdio::piped())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+            {
+                if let Some(mut sin) = child.stdin.take() {
+                    let _ = sin.write_all(text.as_bytes());
+                }
+                if child.wait().map(|s| s.success()).unwrap_or(false) {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    #[cfg(windows)]
+    {
+        use std::io::Write;
+        use std::os::windows::process::CommandExt;
+        use std::process::{Command, Stdio};
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+        if let Ok(mut child) = Command::new("powershell.exe")
+            .args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-Sta",
+                "-Command",
+                "[Console]::InputEncoding = [System.Text.Encoding]::UTF8; $t = [Console]::In.ReadToEnd(); Set-Clipboard -Value $t",
+            ])
+            .creation_flags(CREATE_NO_WINDOW)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+        {
+            if let Some(mut sin) = child.stdin.take() {
+                let _ = sin.write_all(text.as_bytes());
+            }
+            if child.wait().map(|s| s.success()).unwrap_or(false) {
+                return true;
+            }
+        }
+        false
+    }
+}
+
+async fn api_get_clipboard_handler() -> impl IntoResponse {
+    let res = tokio::task::spawn_blocking(read_system_clipboard)
+        .await
+        .ok()
+        .flatten();
+    match res {
+        Some(text) => Json(serde_json::json!({ "ok": true, "text": text })),
+        None => Json(serde_json::json!({ "ok": false })),
+    }
+}
+
+async fn api_set_clipboard_handler(Json(payload): Json<SetClipboardPayload>) -> impl IntoResponse {
+    let text = payload.text;
+    let ok = tokio::task::spawn_blocking(move || write_system_clipboard(&text))
+        .await
+        .unwrap_or(false);
+    Json(serde_json::json!({ "ok": ok }))
 }
 
 async fn api_task_worktrees_handler(
@@ -1985,6 +2219,10 @@ fn main() {
                 get(api_get_workspace_state_handler).post(api_save_workspace_state_handler),
             )
             .route("/api/pty/kill", post(api_pty_kill_handler))
+            .route(
+                "/api/clipboard",
+                get(api_get_clipboard_handler).post(api_set_clipboard_handler),
+            )
             .route("/api/task-worktrees", get(api_task_worktrees_handler))
             .route("/api/doc", get(api_doc_handler))
             .route("/api/prefs", post(api_prefs_handler))

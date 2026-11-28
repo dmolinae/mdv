@@ -127,6 +127,7 @@ pub fn run_native_window(
 
     let init_script = format!(
         r#"window.__MDV_NATIVE_WIN__ = true;
+window.__MDV_CLIPBOARD_READY__ = true;
 window.__MDV_WIN_MAXIMIZED__ = {max_bool};
 (function applyMdvWinState() {{
   if (document.documentElement) {{
@@ -171,6 +172,7 @@ window.__MDV_WIN_MAXIMIZED__ = {max_bool};
     let webview = WebViewBuilder::new_with_web_context(&mut web_context)
         .with_url(&target_url)
         .with_background_color((15, 17, 26, 255))
+        .with_clipboard(true)
         .with_browser_accelerator_keys(false)
         .with_initialization_script(&init_script)
         .with_ipc_handler(ipc_handler)
