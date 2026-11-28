@@ -6,6 +6,24 @@ use axum::{
 
 pub static STYLES_CSS: &[u8] = include_bytes!("../assets/styles.css");
 pub static APP_JS: &[u8] = include_bytes!("../assets/app.js");
+pub static LOGO_SVG: &[u8] = include_bytes!("../assets/logo.svg");
+pub static LOGO_SVG_STR: &str = include_str!("../assets/logo.svg");
+pub static ICON_ICO: &[u8] = include_bytes!("../assets/icon.ico");
+
+pub static WEB_MANIFEST_JSON: &[u8] = br##"{
+  "name": "mdv",
+  "short_name": "mdv",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f111a",
+  "theme_color": "#161926",
+  "icons": [
+    { "src": "/assets/icon-64.png", "sizes": "64x64", "type": "image/png" },
+    { "src": "/assets/icon-128.png", "sizes": "128x128", "type": "image/png" },
+    { "src": "/assets/icon-256.png", "sizes": "256x256", "type": "image/png", "purpose": "any" },
+    { "src": "/assets/logo.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}"##;
 
 pub static OVERLAYSCROLLBARS_CSS: &[u8] = include_bytes!("../assets/vendor/overlayscrollbars.min.css");
 pub static OVERLAYSCROLLBARS_JS_GZ: &[u8] =
@@ -56,6 +74,48 @@ pub fn serve_bytes(bytes: &'static [u8], content_type: &'static str, gzipped: bo
         headers.insert(header::CONTENT_ENCODING, HeaderValue::from_static("gzip"));
     }
     res
+}
+
+/// Extracts an embedded PNG frame (`16`, `24`, `32`, `48`, `64`, `128`, or `256`) directly from `ICON_ICO`
+/// so Chromium/Edge `--app` mode and browsers get genuine raster `image/png` icons for OS titlebar & taskbar.
+pub fn serve_ico_png_frame(target_width: u32) -> Response {
+    if ICON_ICO.len() >= 6 {
+        let count = u16::from_le_bytes([ICON_ICO[4], ICON_ICO[5]]) as usize;
+        let mut fallback_slice: Option<&'static [u8]> = None;
+        for i in 0..count {
+            let entry_off = 6 + i * 16;
+            if entry_off + 16 > ICON_ICO.len() {
+                break;
+            }
+            let raw_w = ICON_ICO[entry_off] as u32;
+            let width = if raw_w == 0 { 256 } else { raw_w };
+            let size = u32::from_le_bytes([
+                ICON_ICO[entry_off + 8],
+                ICON_ICO[entry_off + 9],
+                ICON_ICO[entry_off + 10],
+                ICON_ICO[entry_off + 11],
+            ]) as usize;
+            let data_off = u32::from_le_bytes([
+                ICON_ICO[entry_off + 12],
+                ICON_ICO[entry_off + 13],
+                ICON_ICO[entry_off + 14],
+                ICON_ICO[entry_off + 15],
+            ]) as usize;
+            if data_off + size <= ICON_ICO.len() && size >= 8 {
+                let slice = &ICON_ICO[data_off..data_off + size];
+                if slice.starts_with(b"\x89PNG\r\n\x1a\n") {
+                    fallback_slice = Some(slice);
+                    if width == target_width {
+                        return serve_bytes(slice, "image/png", false);
+                    }
+                }
+            }
+        }
+        if let Some(last_png) = fallback_slice {
+            return serve_bytes(last_png, "image/png", false);
+        }
+    }
+    (StatusCode::NOT_FOUND, "Icon frame not found").into_response()
 }
 
 pub fn serve_katex_asset(rel: &str) -> Response {

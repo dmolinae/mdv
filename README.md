@@ -11,7 +11,7 @@ Descarga y ejecuta **[`mdv-setup-x64.exe`](https://github.com/dmolinae/mdv/relea
 - Instala `mdv.exe` sin requerir permisos de administrador (`%LOCALAPPDATA%\Programs\mdv`).
 - Lo añade automáticamente a tu `PATH` de Windows (listo para PowerShell, CMD y Windows Terminal).
 - Añade **"Abrir en mdv"** al clic derecho sobre carpetas en el Explorador de Windows y asociación opcional de archivos `.md`.
-- Cuando se ejecuta en Windows, abre automáticamente tu terminal **WSL** (con `Iosevka Nerd Font`) en el panel derecho, o PowerShell si WSL no está instalado.
+- Cuando se ejecuta en Windows, abre automáticamente tu terminal **WSL** (con `IosevkaTerm Nerd Font`) en el panel derecho, o PowerShell si WSL no está instalado.
 
 ### Opción 2: Una línea en PowerShell
 ```powershell
@@ -48,9 +48,9 @@ mdv --update
 
 `Navegador de MD` **|** `Visor de MD (Splits infinitos)` **|** `Índice (TOC)` **|** `Zona de Terminales WSL (1 abierta por defecto + Splits infinitos)`
 
-- **Ventana limpia nativa (`--app`) maximizada por defecto:** renderizado DirectWrite nítido sin barras ni pestañas (usa `--windowed` para ventana flotante).
+- **Aplicación nativa real en Windows (`WebView2` + barra superior integrada):** ventana Win32 propia con logo e identidad nativa en la Barra de Tareas y `Alt+Tab` (sin depender de Chrome/Edge `--app`), integrando el logo de `mdv`, arrastre de ventana y botones `─` / `□` / `✕` directamente en la barra superior (usa `--windowed` para ventana flotante o `--browser` para pestaña normal).
 - **Componentes extendidos:** carruseles ````carousel` + `<!-- slide -->`, diagramas **Mermaid** vectoriales con zoom, fórmulas **KaTeX** (`$...$` / `$$...$$`), alertas GitHub/Antigravity (`[!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]`, `[!CAUTION]`), bloques `<details>` y barras flotantes **OverlayScrollbars**.
-- **Terminales reales (`portable-pty` + `xterm.js`):** PTY nativo en Linux/WSL2 y ConPTY conectado a `wsl.exe` en Windows, configurado con `Iosevka Nerd Font`.
+- **Terminales reales (`portable-pty` + `xterm.js`):** PTY nativo en Linux/WSL2 y ConPTY conectado a `wsl.exe` en Windows, configurado con `IosevkaTerm Nerd Font`.
 - **Live-Reload híbrido y apagado automático:** detecta guardados atómicos de Vim/VS Code al instante y cierra el servidor local automáticamente al cerrar la ventana.
 
 ---
