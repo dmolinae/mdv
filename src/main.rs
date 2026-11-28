@@ -126,6 +126,8 @@ pub(crate) struct UserConfig {
     pub wide: bool,
     #[serde(default = "default_zoom")]
     pub zoom: u32,
+    #[serde(default = "default_term_font")]
+    pub term_font: String,
     #[serde(default)]
     pub clickup: clickup::ClickUpConfig,
 }
@@ -139,6 +141,9 @@ fn default_theme() -> String {
 fn default_zoom() -> u32 {
     100
 }
+fn default_term_font() -> String {
+    "iosevka".to_string()
+}
 
 impl Default for UserConfig {
     fn default() -> Self {
@@ -147,6 +152,7 @@ impl Default for UserConfig {
             theme: default_theme(),
             wide: false,
             zoom: 100,
+            term_font: default_term_font(),
             clickup: clickup::ClickUpConfig::default(),
         }
     }
@@ -593,6 +599,7 @@ fn build_html_shell(
         "dirMode": effective_dir_mode,
         "defaultTheme": state.default_theme,
         "defaultZoom": user_cfg.zoom,
+        "defaultTermFont": user_cfg.term_font,
         "maximized": user_cfg.maximized,
         "savedWorkspaceState": load_workspace_state(&state.workspace_dir),
         "clickup": {
@@ -641,7 +648,7 @@ fn build_html_shell(
   <link rel="stylesheet" href="/vendor/overlayscrollbars/overlayscrollbars.min.css" />
   <link rel="stylesheet" href="/vendor/xterm/xterm.css" />
   <link rel="stylesheet" href="/vendor/katex/katex.min.css" />
-  <link rel="stylesheet" href="/assets/styles.css?v=2.13.1" />
+  <link rel="stylesheet" href="/assets/styles.css?v=2.14.0" />
 </head>
 <body class="{body_cls_str}">
   <div class="mdv-win-resize-ring" aria-hidden="true">
@@ -698,6 +705,24 @@ fn build_html_shell(
         <button type="button" id="mdv-font-reset" class="mdv-tool-btn mdv-font-pct" title="Restablecer tamaño (0)">{zoom}%</button>
         <button type="button" id="mdv-font-inc" class="mdv-tool-btn mdv-font-btn" title="Agrandar letra (+)">A+</button>
       </div>
+
+      <select id="mdv-term-font-select" class="mdv-theme-select" aria-label="Fuente de la terminal" title="Cambiar fuente de las terminales">
+        <option value="iosevka">Iosevka Term</option>
+        <option value="jetbrains">JetBrains Mono</option>
+        <option value="cascadia">Cascadia Code</option>
+        <option value="fira">Fira Code</option>
+        <option value="meslo">MesloLGS NF</option>
+        <option value="hack">Hack</option>
+        <option value="0xproto">0xProto</option>
+        <option value="geist">Geist Mono</option>
+        <option value="commit">Commit Mono</option>
+        <option value="victor">Victor Mono</option>
+        <option value="ubuntu">Ubuntu Mono</option>
+        <option value="source-code">Source Code Pro</option>
+        <option value="ibm-plex">IBM Plex Mono</option>
+        <option value="consolas">Consolas</option>
+        <option value="monospace">Sistema Mono</option>
+      </select>
 
       <select id="mdv-theme-select" class="mdv-theme-select" aria-label="Tema visual" title="Cambiar tema (c)">
         <option value="tokyo">Tokyo Night</option>
@@ -901,7 +926,7 @@ fn build_html_shell(
   <script src="/vendor/highlight/highlight.min.js"></script>
   <script src="/vendor/katex/katex.min.js"></script>
   <script src="/vendor/mermaid/mermaid.min.js"></script>
-  <script src="/assets/app.js?v=2.13.2"></script>
+  <script src="/assets/app.js?v=2.14.0"></script>
 </body>
 </html>"#,
         theme = workspace::escape_html_attr(&state.default_theme),

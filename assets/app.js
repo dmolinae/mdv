@@ -104,6 +104,7 @@
   const fileNameEl = document.getElementById('mdv-filename');
   const liveDotEl = document.getElementById('mdv-live-dot');
   const reloadPillEl = document.getElementById('mdv-reload-pill');
+  const termFontSelect = document.getElementById('mdv-term-font-select');
   const themeSelect = document.getElementById('mdv-theme-select');
   const btnFiles = document.getElementById('mdv-toggle-files');
   const btnToc = document.getElementById('mdv-toggle-toc');
@@ -537,6 +538,127 @@
     light: { bg: '#f8fafc', dot: '#2563eb', hint: 'Claro' }
   };
 
+  const TERM_FONTS = {
+    iosevka: {
+      label: 'Iosevka Term',
+      probes: ['MDV IosevkaTerm Nerd', 'IosevkaTerm Nerd Font', 'IosevkaTerm NF', 'Iosevka Term', 'Iosevka'],
+      stack:
+        '"MDV IosevkaTerm Nerd", "IosevkaTerm Nerd Font", "IosevkaTerm NF", "IosevkaTerm Nerd Font Mono", "IosevkaTerm NFM", "Iosevka Term", "Iosevka Nerd Font", "Iosevka NF", "Iosevka", "Cascadia Code", monospace'
+    },
+    jetbrains: {
+      label: 'JetBrains Mono',
+      probes: ['JetBrainsMono Nerd Font', 'JetBrainsMono NF', 'JetBrainsMono NFM', 'JetBrains Mono'],
+      stack:
+        '"JetBrainsMono Nerd Font", "JetBrainsMono NF", "JetBrainsMono Nerd Font Mono", "JetBrainsMono NFM", "JetBrains Mono", monospace'
+    },
+    cascadia: {
+      label: 'Cascadia Code',
+      probes: ['CaskaydiaCove Nerd Font', 'CaskaydiaCove NF', 'Cascadia Code NF', 'Cascadia Code', 'Cascadia Mono'],
+      stack:
+        '"CaskaydiaCove Nerd Font", "CaskaydiaCove NF", "CaskaydiaMono Nerd Font", "CaskaydiaMono NF", "Cascadia Code NF", "Cascadia Mono NF", "Cascadia Code", "Cascadia Mono", monospace'
+    },
+    fira: {
+      label: 'Fira Code',
+      probes: ['FiraCode Nerd Font', 'FiraCode NF', 'FiraCode NFM', 'Fira Code'],
+      stack:
+        '"FiraCode Nerd Font", "FiraCode NF", "FiraCode Nerd Font Mono", "FiraCode NFM", "Fira Code", monospace'
+    },
+    meslo: {
+      label: 'MesloLGS NF',
+      probes: ['MesloLGS Nerd Font', 'MesloLGS NF', 'MesloLGM NF', 'Meslo LG S'],
+      stack:
+        '"MesloLGS Nerd Font", "MesloLGS NF", "MesloLGM Nerd Font", "MesloLGM NF", "Meslo LG S", monospace'
+    },
+    hack: {
+      label: 'Hack',
+      probes: ['Hack Nerd Font', 'Hack NF', 'Hack NFM', 'Hack'],
+      stack: '"Hack Nerd Font", "Hack NF", "Hack Nerd Font Mono", "Hack NFM", "Hack", monospace'
+    },
+    '0xproto': {
+      label: '0xProto',
+      probes: ['0xProto Nerd Font', '0xProto NF', '0xProto'],
+      stack: '"0xProto Nerd Font", "0xProto NF", "0xProto", monospace'
+    },
+    geist: {
+      label: 'Geist Mono',
+      probes: ['GeistMono Nerd Font', 'GeistMono NF', 'Geist Mono'],
+      stack: '"GeistMono Nerd Font", "GeistMono NF", "Geist Mono", monospace'
+    },
+    commit: {
+      label: 'Commit Mono',
+      probes: ['CommitMono Nerd Font', 'CommitMono NF', 'CommitMono', 'Commit Mono'],
+      stack: '"CommitMono Nerd Font", "CommitMono NF", "CommitMono", "Commit Mono", monospace'
+    },
+    victor: {
+      label: 'Victor Mono',
+      probes: ['VictorMono Nerd Font', 'VictorMono NF', 'Victor Mono'],
+      stack: '"VictorMono Nerd Font", "VictorMono NF", "Victor Mono", monospace'
+    },
+    ubuntu: {
+      label: 'Ubuntu Mono',
+      probes: ['UbuntuMono Nerd Font', 'UbuntuMono NF', 'Ubuntu Mono'],
+      stack: '"UbuntuMono Nerd Font", "UbuntuMono NF", "Ubuntu Mono", monospace'
+    },
+    'source-code': {
+      label: 'Source Code Pro',
+      probes: ['SauceCodePro Nerd Font', 'SauceCodePro NF', 'Source Code Pro'],
+      stack: '"SauceCodePro Nerd Font", "SauceCodePro NF", "Source Code Pro", monospace'
+    },
+    'ibm-plex': {
+      label: 'IBM Plex Mono',
+      probes: ['BlexMono Nerd Font', 'BlexMono NF', 'IBM Plex Mono'],
+      stack: '"BlexMono Nerd Font", "BlexMono NF", "IBM Plex Mono", monospace'
+    },
+    consolas: {
+      label: 'Consolas',
+      probes: ['Consolas'],
+      stack: '"Consolas", "Lucida Console", monospace'
+    },
+    monospace: {
+      label: 'Sistema Mono',
+      probes: [],
+      stack: 'ui-monospace, monospace'
+    }
+  };
+
+  const detectedFontAvailability = new Map();
+  function isTermFontInstalled(fontKey) {
+    if (fontKey === 'monospace') return true;
+    if (detectedFontAvailability.has(fontKey)) return detectedFontAvailability.get(fontKey);
+    const entry = TERM_FONTS[fontKey];
+    if (!entry || !entry.probes?.length) return false;
+    try {
+      const c = document.createElement('canvas');
+      const g = c.getContext('2d');
+      if (!g) return false;
+      const sample = 'mmmmmmmmmmlliWW01@#';
+      g.font = '16px serif';
+      const wSerif = g.measureText(sample).width;
+      g.font = '16px sans-serif';
+      const wSans = g.measureText(sample).width;
+      for (const fam of entry.probes) {
+        g.font = `16px "${fam}", serif`;
+        const w1 = g.measureText(sample).width;
+        g.font = `16px "${fam}", sans-serif`;
+        const w2 = g.measureText(sample).width;
+        if (Math.abs(w1 - wSerif) > 0.05 || Math.abs(w2 - wSans) > 0.05) {
+          detectedFontAvailability.set(fontKey, true);
+          return true;
+        }
+      }
+    } catch {}
+    detectedFontAvailability.set(fontKey, false);
+    return false;
+  }
+
+  let currentTermFontKey =
+    localStorage.getItem('mdv-term-font') || initCfg.defaultTermFont || 'iosevka';
+  if (!TERM_FONTS[currentTermFontKey]) currentTermFontKey = 'iosevka';
+
+  function resolveTermFontStack(key = currentTermFontKey) {
+    return (TERM_FONTS[key] || TERM_FONTS.iosevka).stack;
+  }
+
   let activeOpenCombobox = null;
 
   function createMdvCombobox(selectEl, { kind = 'default', filterPlaceholder = 'Filtrar opciones...' } = {}) {
@@ -592,16 +714,30 @@
         const meta = THEME_COMBO_META[val] || THEME_COMBO_META.tokyo;
         return `<span class="mdv-combobox-swatch" style="background:${meta.bg}"><span class="mdv-combobox-swatch-dot" style="background:${meta.dot}"></span></span>`;
       }
+      if (kind === 'font') {
+        return `<span class="mdv-combobox-font-icon">Aa</span>`;
+      }
       const ch = String(text || 'W').trim().charAt(0).toUpperCase() || 'W';
       return `<span class="mdv-combobox-ws-icon">${escapeHtmlAttr(ch)}</span>`;
     };
 
     const readSelectOptions = () =>
-      Array.from(selectEl.options).map((opt) => ({
-        value: opt.value,
-        label: opt.textContent || opt.value,
-        hint: kind === 'theme' ? THEME_COMBO_META[opt.value]?.hint || '' : ''
-      }));
+      Array.from(selectEl.options).map((opt) => {
+        let hint = '';
+        let previewFont = '';
+        if (kind === 'theme') {
+          hint = THEME_COMBO_META[opt.value]?.hint || '';
+        } else if (kind === 'font') {
+          hint = isTermFontInstalled(opt.value) ? 'Instalada' : '';
+          previewFont = TERM_FONTS[opt.value]?.stack || '';
+        }
+        return {
+          value: opt.value,
+          label: opt.textContent || opt.value,
+          hint,
+          previewFont
+        };
+      });
 
     const syncTrigger = () => {
       root.hidden = Boolean(selectEl.hidden);
@@ -618,7 +754,7 @@
 
     const positionPopover = () => {
       const rect = trigger.getBoundingClientRect();
-      const popWidth = Math.max(rect.width, kind === 'theme' ? 204 : 228);
+      const popWidth = Math.max(rect.width, kind === 'theme' ? 204 : kind === 'font' ? 236 : 228);
       popover.style.width = `${Math.round(popWidth)}px`;
 
       let left = rect.left;
@@ -656,10 +792,11 @@
         .map((opt, idx) => {
           const isSel = opt.value === selectEl.value;
           const isHi = idx === highlightedIdx;
+          const fontStyle = opt.previewFont ? ` style="font-family:${escapeHtmlAttr(opt.previewFont)}"` : '';
           return `
             <li class="mdv-combobox-option${isSel ? ' is-selected' : ''}${isHi ? ' is-highlighted' : ''}" role="option" aria-selected="${isSel ? 'true' : 'false'}" data-combo-idx="${idx}" data-combo-val="${escapeHtmlAttr(opt.value)}">
               ${buildLeadHtml(opt.value, opt.label)}
-              <span class="mdv-combobox-opt-text">${escapeHtmlAttr(opt.label)}</span>
+              <span class="mdv-combobox-opt-text"${fontStyle}>${escapeHtmlAttr(opt.label)}</span>
               ${opt.hint ? `<span class="mdv-combobox-opt-hint">${escapeHtmlAttr(opt.hint)}</span>` : ''}
               <svg class="mdv-combobox-check" viewBox="0 0 16 16" fill="none"><path d="M3.2 8.4l3.1 3.1 6.5-6.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
             </li>`;
@@ -821,8 +958,46 @@
     activeOpenCombobox?.positionPopover?.();
   });
 
+  let termFontCombobox = null;
   let themeCombobox = null;
   let cuTeamCombobox = null;
+
+  function applyTermFont(fontKey, persist = true) {
+    const validKey = TERM_FONTS[fontKey] ? fontKey : 'iosevka';
+    currentTermFontKey = validKey;
+    if (termFontSelect) termFontSelect.value = validKey;
+    termFontCombobox?.syncFromSelect();
+    localStorage.setItem('mdv-term-font', validKey);
+
+    const stack = resolveTermFontStack(validKey);
+    const termPx = computeTermFontSize(zoomPercent);
+    const probes = TERM_FONTS[validKey]?.probes || [];
+
+    const refreshAllTerms = () => {
+      for (const tp of termPanes.values()) {
+        if (tp.term) {
+          tp.term.options.fontFamily = stack;
+          try {
+            tp.term._core?._charSizeService?.measure?.();
+            tp.term.clearTextureAtlas?.();
+          } catch {}
+          tp.fitTerminal?.();
+        }
+      }
+    };
+
+    refreshAllTerms();
+    if (document.fonts?.load && probes.length) {
+      Promise.allSettled(probes.slice(0, 3).map((f) => document.fonts.load(`${termPx}px "${f}"`))).then(
+        () => refreshAllTerms()
+      );
+    }
+
+    if (persist) {
+      savePrefs({ term_font: validKey });
+      showToast(`Fuente: ${TERM_FONTS[validKey].label}`);
+    }
+  }
 
   function currentThemeName() {
     return document.documentElement.getAttribute('data-theme') || 'tokyo';
@@ -1849,8 +2024,7 @@
           fastScrollModifier: 'shift',
           fastScrollSensitivity: 5,
           fontSize: termPx,
-          fontFamily:
-            '"MDV IosevkaTerm Nerd", "IosevkaTerm Nerd Font", "IosevkaTerm NF", "IosevkaTerm Nerd Font Mono", "IosevkaTerm NFM", "Iosevka Term", "Iosevka Nerd Font", "Iosevka NF", "Iosevka", "Cascadia Code", monospace',
+          fontFamily: resolveTermFontStack(),
           lineHeight: 1.16,
           scrollback: 3000,
           overviewRulerWidth: 0,
@@ -2160,18 +2334,19 @@
         connectShell();
 
         if (document.fonts?.load) {
-          Promise.allSettled([
-            document.fonts.load(`${termPx}px "MDV IosevkaTerm Nerd"`),
-            document.fonts.load(`${termPx}px "IosevkaTerm Nerd Font"`),
-            document.fonts.load(`${termPx}px "IosevkaTerm NF"`)
-          ]).then(() => {
-            if (disposed || pane.isHidden) return;
-            try {
-              term._core?._charSizeService?.measure?.();
-              term.clearTextureAtlas?.();
-              pane.fitTerminal();
-            } catch {}
-          });
+          const activeProbes = TERM_FONTS[currentTermFontKey]?.probes || [];
+          if (activeProbes.length) {
+            Promise.allSettled(
+              activeProbes.slice(0, 3).map((f) => document.fonts.load(`${termPx}px "${f}"`))
+            ).then(() => {
+              if (disposed || pane.isHidden) return;
+              try {
+                term._core?._charSizeService?.measure?.();
+                term.clearTextureAtlas?.();
+                pane.fitTerminal();
+              } catch {}
+            });
+          }
         }
 
         // Send raw UTF-8 binary frames on every keystroke (0 JSON stringify/parse overhead!)
@@ -3169,6 +3344,11 @@
     });
   });
 
+  if (termFontSelect) termFontSelect.value = currentTermFontKey;
+  termFontCombobox = createMdvCombobox(termFontSelect, {
+    kind: 'font',
+    filterPlaceholder: 'Filtrar fuente...'
+  });
   themeCombobox = createMdvCombobox(themeSelect, {
     kind: 'theme',
     filterPlaceholder: 'Filtrar tema...'
@@ -3177,6 +3357,7 @@
     kind: 'workspace',
     filterPlaceholder: 'Filtrar workspace...'
   });
+  termFontSelect?.addEventListener('change', (e) => applyTermFont(e.target.value, true));
   themeSelect?.addEventListener('change', (e) => applyTheme(e.target.value, true));
   btnFiles?.addEventListener('click', toggleFilesPanel);
   btnToc?.addEventListener('click', toggleTocPanel);

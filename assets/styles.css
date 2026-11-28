@@ -298,6 +298,32 @@ html.is-native-win .mdv-topbar {
   flex-shrink: 0;
 }
 
+.mdv-combobox-font-icon {
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: rgba(16, 185, 129, 0.14);
+  border: 1px solid rgba(16, 185, 129, 0.34);
+  color: #10b981;
+  font-family: "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+  font-size: 0.63rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+[data-theme="light"] .mdv-combobox-font-icon {
+  color: #047857;
+}
+
+.mdv-combobox.is-font .mdv-combobox-trigger {
+  min-width: 128px;
+  max-width: 178px;
+}
+
 .mdv-combobox-label {
   flex: 1 1 auto;
   min-width: 0;
