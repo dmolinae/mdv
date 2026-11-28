@@ -1682,15 +1682,26 @@
 
         // Pass app-level spatial & split shortcuts cleanly out of xterm
         term.attachCustomKeyEventHandler((ev) => {
-          if (!ev.altKey && !ev.ctrlKey && !ev.metaKey) {
+          const isAltGraph = Boolean(ev.getModifierState && ev.getModifierState('AltGraph'));
+          if (!ev.altKey && !ev.ctrlKey && !ev.metaKey && !isAltGraph) {
             return true;
           }
-          const isAltGraph = Boolean(ev.getModifierState && ev.getModifierState('AltGraph'));
+          const kLow = ev.key ? ev.key.toLowerCase() : '';
           const isCtrlAlt = (ev.ctrlKey && ev.altKey && !ev.metaKey) || (isAltGraph && !ev.metaKey);
-          if (isCtrlAlt && ['KeyR', 'KeyD', 'KeyT', 'KeyB', 'KeyW'].includes(ev.code)) {
+          if (
+            isCtrlAlt &&
+            (['KeyR', 'KeyD', 'KeyT', 'KeyB', 'KeyW'].includes(ev.code) ||
+              ['r', 'd', 't', 'b', 'w'].includes(kLow))
+          ) {
             return false;
           }
-          if (ev.altKey && ev.shiftKey && !ev.ctrlKey && ['KeyR', 'KeyD', 'KeyW', 'ArrowLeft', 'ArrowRight'].includes(ev.code)) {
+          if (
+            ev.altKey &&
+            ev.shiftKey &&
+            !ev.ctrlKey &&
+            (['KeyR', 'KeyD', 'KeyW', 'ArrowLeft', 'ArrowRight'].includes(ev.code) ||
+              ['r', 'd', 'w'].includes(kLow))
+          ) {
             return false;
           }
           if (
@@ -1704,7 +1715,7 @@
             return false;
           }
           if (ev.ctrlKey && ev.shiftKey && !ev.altKey && !ev.metaKey) {
-            if (ev.code === 'KeyW' || ev.key?.toLowerCase() === 'w') {
+            if (ev.code === 'KeyW' || kLow === 'w') {
               return false;
             }
             if (ev.code === 'KeyC' && term.hasSelection()) {
@@ -2316,6 +2327,7 @@
     updateZoneCounts();
     newPane.boot();
     setFocusZone('terminal', newPane.id, false);
+    requestAnimationFrame(() => fitAllTerminals());
     scheduleSaveWorkspaceState();
     showToast(direction === 'vertical' ? 'Terminal Split Right' : 'Terminal Split Down');
     return newPane;
@@ -3344,18 +3356,14 @@
 
   window.addEventListener(
     'keydown',
-    (e) => {
-      // Zero-overhead synchronous fast path when typing normal keys inside a terminal!
-      if (focusZone === 'terminal' && !e.altKey && !e.ctrlKey && !e.metaKey) {
+    async (e) => {
+      const isAltGraph = Boolean(e.getModifierState && e.getModifierState('AltGraph'));
+      // Fast path ONLY when zero modifiers (including AltGraph!) are active inside terminal
+      if (focusZone === 'terminal' && !e.altKey && !e.ctrlKey && !e.metaKey && !isAltGraph) {
         return;
       }
       const inXterm = Boolean(e.target?.closest?.('.xterm'));
-      if (inXterm && !e.altKey && !e.ctrlKey && !e.metaKey) {
-        return;
-      }
-      (async () => {
       const inInput = !inXterm && Boolean(e.target?.matches?.('input, textarea, select'));
-      const isAltGraph = Boolean(e.getModifierState && e.getModifierState('AltGraph'));
       const isCtrlAlt = (e.ctrlKey && e.altKey && !e.metaKey) || (!inInput && isAltGraph && !e.metaKey);
 
       // Close focused terminal with Ctrl+Shift+W
@@ -3984,7 +3992,6 @@
           closeMarkdownPane(pane.id);
           break;
       }
-      })();
     },
     { capture: true }
   );
