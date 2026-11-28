@@ -1,5 +1,5 @@
 #define MyAppName "mdv"
-#define MyAppVersion "2.0.0"
+#define MyAppVersion "2.1.0"
 #define MyAppPublisher "Daniel Molina"
 #define MyAppURL "https://github.com/dmolinae/mdv"
 #define MyAppExeName "mdv.exe"

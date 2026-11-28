@@ -45,7 +45,7 @@ use tokio_stream::{wrappers::BroadcastStream, StreamExt as _};
 #[derive(ClapParser, Debug, Clone)]
 #[command(
     name = "mdv",
-    version = "2.0.0",
+    version,
     about = "Visor moderno de Markdown en Rust con Zona de Terminales WSL, Splits infinitos, Carousel, Mermaid y Vim"
 )]
 struct Cli {
@@ -2399,7 +2399,12 @@ fn main() {
         let url = format!("http://127.0.0.1:{}", local_addr.port());
 
         if !cli.server_child {
-            println!("mdv 2.0.0 (Rust) escuchando en {} ({})", url, workspace_dir.display());
+            println!(
+                "mdv {} (Rust) escuchando en {} ({})",
+                env!("CARGO_PKG_VERSION"),
+                url,
+                workspace_dir.display()
+            );
         }
 
         (listener, app, url)

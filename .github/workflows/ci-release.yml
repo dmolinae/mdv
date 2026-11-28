@@ -56,6 +56,9 @@ jobs:
     name: Update GitHub Release Assets
     needs: [build-windows, build-linux]
     runs-on: ubuntu-latest
+    concurrency:
+      group: publish-release-assets
+      cancel-in-progress: false
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -69,6 +72,6 @@ jobs:
           sha256sum mdv-setup-x64.exe mdv-windows-x86_64.zip mdv-linux-x86_64.tar.gz > checksums.txt
           ls -lh
           TAG="${GITHUB_REF_NAME}"
-          if [ "${GITHUB_REF_TYPE}" != "tag" ]; then TAG="v2.0.0"; fi
-          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "mdv $TAG" --notes "Automated native Windows (WebView2 + GUI Installer) & Linux/WSL2 release binaries."
-          gh release upload "$TAG" mdv-setup-x64.exe mdv-windows-x86_64.zip mdv-linux-x86_64.tar.gz checksums.txt --clobber
+          if [ "${GITHUB_REF_TYPE}" != "tag" ]; then TAG="v2.1.0"; fi
+          gh release view "$TAG" -R "${GITHUB_REPOSITORY}" >/dev/null 2>&1 || gh release create "$TAG" -R "${GITHUB_REPOSITORY}" --latest --title "mdv $TAG" --notes "Automated native Windows (WebView2 + GUI Installer) & Linux/WSL2 release binaries."
+          gh release upload "$TAG" mdv-setup-x64.exe mdv-windows-x86_64.zip mdv-linux-x86_64.tar.gz checksums.txt -R "${GITHUB_REPOSITORY}" --clobber
