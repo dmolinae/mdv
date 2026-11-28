@@ -1,0 +1,64 @@
+name: Build & Release Binaries
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    name: Windows Native WebView2 (x86_64)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build mdv.exe (native borderless WebView2 host)
+        run: cargo build --release --bin mdv
+      - name: Package mdv-windows-x86_64.zip
+        shell: pwsh
+        run: |
+          Compress-Archive -Path target/release/mdv.exe -DestinationPath mdv-windows-x86_64.zip -Force
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mdv-windows-x86_64
+          path: mdv-windows-x86_64.zip
+      - name: Update latest GitHub Release asset
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: pwsh
+        run: |
+          $tag = if ("${{ github.ref_type }}" -eq "tag") { "${{ github.ref_name }}" } else { "v2.0.0" }
+          gh release view $tag *> $null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag --title "mdv $tag" --notes "Automated native Windows (WebView2) & Linux/WSL2 release binaries."
+          }
+          gh release upload $tag mdv-windows-x86_64.zip --clobber
+
+  build-linux:
+    name: Linux / WSL2 Native (x86_64)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build mdv (Linux x86_64)
+        run: cargo build --release --bin mdv
+      - name: Package mdv-linux-x86_64.tar.gz
+        run: tar -czf mdv-linux-x86_64.tar.gz -C target/release mdv
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mdv-linux-x86_64
+          path: mdv-linux-x86_64.tar.gz
+      - name: Update latest GitHub Release asset
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          if [ "${GITHUB_REF_TYPE}" != "tag" ]; then TAG="v2.0.0"; fi
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "mdv $TAG" --notes "Automated native Windows (WebView2) & Linux/WSL2 release binaries."
+          gh release upload "$TAG" mdv-linux-x86_64.tar.gz --clobber

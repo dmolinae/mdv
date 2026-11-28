@@ -15,6 +15,7 @@ pub static WEB_MANIFEST_JSON: &[u8] = br##"{
   "short_name": "mdv",
   "start_url": "/",
   "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone"],
   "background_color": "#0f111a",
   "theme_color": "#161926",
   "icons": [

@@ -127,9 +127,16 @@ pub fn run_native_window(
 
     let init_script = format!(
         r#"window.__MDV_NATIVE_WIN__ = true;
-document.documentElement.classList.add('is-native-win');
-document.documentElement.setAttribute('data-win-maximized', '{}');"#,
-        if maximized { "true" } else { "false" }
+window.__MDV_WIN_MAXIMIZED__ = {max_bool};
+(function applyMdvWinState() {{
+  if (document.documentElement) {{
+    document.documentElement.classList.add('is-native-win');
+    document.documentElement.setAttribute('data-win-maximized', window.__MDV_WIN_MAXIMIZED__ ? 'true' : 'false');
+  }} else {{
+    document.addEventListener('DOMContentLoaded', applyMdvWinState, {{ once: true }});
+  }}
+}})();"#,
+        max_bool = if maximized { "true" } else { "false" }
     );
 
     let proxy = event_loop.create_proxy();
@@ -191,8 +198,9 @@ document.documentElement.setAttribute('data-win-maximized', '{}');"#,
                     last_max = is_max;
                     if let Some(ref wv) = webview_opt {
                         let js = format!(
-                            "document.documentElement.setAttribute('data-win-maximized', '{}');",
-                            if is_max { "true" } else { "false" }
+                            "window.__MDV_WIN_MAXIMIZED__ = {b}; if (document.documentElement) document.documentElement.setAttribute('data-win-maximized', '{s}');",
+                            b = if is_max { "true" } else { "false" },
+                            s = if is_max { "true" } else { "false" }
                         );
                         let _ = wv.evaluate_script(&js);
                     }

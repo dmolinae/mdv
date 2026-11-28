@@ -124,27 +124,66 @@
   const btnWinMax = document.getElementById('mdv-win-max');
   const btnWinClose = document.getElementById('mdv-win-close');
 
+  const isNativeWinHost = Boolean(
+    window.__MDV_NATIVE_WIN__ ||
+    window.chrome?.webview ||
+    new URLSearchParams(location.search).get('native_win') === '1'
+  );
+
   function postNativeWin(msg) {
-    if (window.__MDV_NATIVE_WIN__ && window.ipc?.postMessage) {
+    if (!isNativeWinHost) return;
+    if (window.ipc?.postMessage) {
       window.ipc.postMessage(msg);
+    } else if (window.chrome?.webview?.postMessage) {
+      window.chrome.webview.postMessage(msg);
     }
   }
 
-  if (window.__MDV_NATIVE_WIN__) {
+  if (isNativeWinHost) {
+    window.__MDV_NATIVE_WIN__ = true;
     document.documentElement.classList.add('is-native-win');
+    if (typeof window.__MDV_WIN_MAXIMIZED__ === 'boolean') {
+      document.documentElement.setAttribute(
+        'data-win-maximized',
+        window.__MDV_WIN_MAXIMIZED__ ? 'true' : 'false'
+      );
+    }
     btnWinMin?.addEventListener('click', () => postNativeWin('minimize'));
     btnWinMax?.addEventListener('click', () => postNativeWin('toggle_maximize'));
     btnWinClose?.addEventListener('click', () => postNativeWin('close'));
 
-    topbarEl?.addEventListener('mousedown', (e) => {
-      if (e.button !== 0) return;
-      if (e.target.closest('button, select, input, a, .mdv-win-controls')) return;
+    const isInteractiveTopbarTarget = (target) =>
+      Boolean(
+        target?.closest?.(
+          'button, select, input, a, .mdv-combobox, .mdv-combobox-popover, .mdv-btn-pill-group, .mdv-win-controls'
+        )
+      );
+
+    topbarEl?.addEventListener('dblclick', (e) => {
+      if (e.button !== 0 || isInteractiveTopbarTarget(e.target)) return;
       e.preventDefault();
-      if (e.detail === 2) {
-        postNativeWin('toggle_maximize');
-      } else {
-        postNativeWin('drag');
-      }
+      postNativeWin('toggle_maximize');
+    });
+
+    topbarEl?.addEventListener('mousedown', (e) => {
+      if (e.button !== 0 || e.detail > 1 || isInteractiveTopbarTarget(e.target)) return;
+      const startX = e.screenX;
+      const startY = e.screenY;
+      let dragged = false;
+      const onMove = (mv) => {
+        if (dragged) return;
+        if (Math.abs(mv.screenX - startX) >= 3 || Math.abs(mv.screenY - startY) >= 3) {
+          dragged = true;
+          cleanup();
+          postNativeWin('drag');
+        }
+      };
+      const cleanup = () => {
+        window.removeEventListener('mousemove', onMove, true);
+        window.removeEventListener('mouseup', cleanup, true);
+      };
+      window.addEventListener('mousemove', onMove, true);
+      window.addEventListener('mouseup', cleanup, true);
     });
 
     document.querySelector('.mdv-win-resize-ring')?.addEventListener('mousedown', (e) => {
@@ -488,6 +527,303 @@
     }, 1500);
   }
 
+  // =========================================================================
+  // SLEEK CUSTOM COMBOBOX COMPONENT (Portal Popover + Live Filter + Swatches)
+  // =========================================================================
+  const THEME_COMBO_META = {
+    tokyo: { bg: '#161926', dot: '#7aa2f7', hint: 'Oscuro' },
+    'github-dark': { bg: '#161b22', dot: '#58a6ff', hint: 'Oscuro' },
+    catppuccin: { bg: '#1e1e2e', dot: '#cba6f7', hint: 'Pastel' },
+    light: { bg: '#f8fafc', dot: '#2563eb', hint: 'Claro' }
+  };
+
+  let activeOpenCombobox = null;
+
+  function createMdvCombobox(selectEl, { kind = 'default', filterPlaceholder = 'Filtrar opciones...' } = {}) {
+    if (!selectEl) return null;
+    selectEl.classList.add('mdv-native-select-hidden');
+
+    const root = document.createElement('div');
+    root.className = `mdv-combobox is-${kind}`;
+    if (selectEl.hidden) root.hidden = true;
+
+    const trigger = document.createElement('button');
+    trigger.type = 'button';
+    trigger.className = 'mdv-combobox-trigger';
+    trigger.setAttribute('role', 'combobox');
+    trigger.setAttribute('aria-haspopup', 'listbox');
+    trigger.setAttribute('aria-expanded', 'false');
+    if (selectEl.title) trigger.title = selectEl.title;
+    if (selectEl.getAttribute('aria-label')) {
+      trigger.setAttribute('aria-label', selectEl.getAttribute('aria-label'));
+    }
+
+    const leadSpan = document.createElement('span');
+    leadSpan.className = 'mdv-combobox-lead';
+    const labelSpan = document.createElement('span');
+    labelSpan.className = 'mdv-combobox-label';
+    const chevronWrap = document.createElement('span');
+    chevronWrap.innerHTML = `<svg class="mdv-combobox-chevron" viewBox="0 0 16 16" width="12" height="12" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+
+    trigger.append(leadSpan, labelSpan, chevronWrap.firstElementChild);
+    root.appendChild(trigger);
+    selectEl.insertAdjacentElement('afterend', root);
+
+    const popover = document.createElement('div');
+    popover.className = 'mdv-combobox-popover';
+    popover.hidden = true;
+    popover.innerHTML = `
+      <div class="mdv-combobox-search-wrap">
+        <svg class="mdv-combobox-search-icon" viewBox="0 0 16 16" width="12" height="12" fill="none"><circle cx="7" cy="7" r="4.8" stroke="currentColor" stroke-width="1.5"/><path d="M10.6 10.6L14 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        <input type="text" class="mdv-combobox-search" placeholder="${escapeHtmlAttr(filterPlaceholder)}" autocomplete="off" spellcheck="false" />
+      </div>
+      <ul class="mdv-combobox-list" role="listbox"></ul>`;
+    document.body.appendChild(popover);
+
+    const searchInput = popover.querySelector('.mdv-combobox-search');
+    const listEl = popover.querySelector('.mdv-combobox-list');
+
+    let isOpen = false;
+    let highlightedIdx = 0;
+    let filteredOptions = [];
+
+    const buildLeadHtml = (val, text) => {
+      if (kind === 'theme') {
+        const meta = THEME_COMBO_META[val] || THEME_COMBO_META.tokyo;
+        return `<span class="mdv-combobox-swatch" style="background:${meta.bg}"><span class="mdv-combobox-swatch-dot" style="background:${meta.dot}"></span></span>`;
+      }
+      const ch = String(text || 'W').trim().charAt(0).toUpperCase() || 'W';
+      return `<span class="mdv-combobox-ws-icon">${escapeHtmlAttr(ch)}</span>`;
+    };
+
+    const readSelectOptions = () =>
+      Array.from(selectEl.options).map((opt) => ({
+        value: opt.value,
+        label: opt.textContent || opt.value,
+        hint: kind === 'theme' ? THEME_COMBO_META[opt.value]?.hint || '' : ''
+      }));
+
+    const syncTrigger = () => {
+      root.hidden = Boolean(selectEl.hidden);
+      const opts = readSelectOptions();
+      const current = opts.find((o) => o.value === selectEl.value) || opts[0];
+      if (!current) {
+        leadSpan.innerHTML = '';
+        labelSpan.textContent = 'Sin opciones';
+        return;
+      }
+      leadSpan.innerHTML = buildLeadHtml(current.value, current.label);
+      labelSpan.textContent = current.label;
+    };
+
+    const positionPopover = () => {
+      const rect = trigger.getBoundingClientRect();
+      const popWidth = Math.max(rect.width, kind === 'theme' ? 204 : 228);
+      popover.style.width = `${Math.round(popWidth)}px`;
+
+      let left = rect.left;
+      if (left + popWidth > window.innerWidth - 8) {
+        left = Math.max(8, rect.right - popWidth);
+      }
+      let top = rect.bottom + 6;
+      const estHeight = Math.min(280, 44 + filteredOptions.length * 32);
+      if (top + estHeight > window.innerHeight - 8 && rect.top > estHeight + 12) {
+        top = rect.top - estHeight - 6;
+      }
+      popover.style.left = `${Math.round(left)}px`;
+      popover.style.top = `${Math.round(top)}px`;
+    };
+
+    const renderList = () => {
+      const q = (searchInput.value || '').trim().toLowerCase();
+      const all = readSelectOptions();
+      filteredOptions = q
+        ? all.filter((o) => o.label.toLowerCase().includes(q) || o.hint.toLowerCase().includes(q))
+        : all;
+
+      if (!filteredOptions.length) {
+        highlightedIdx = -1;
+        listEl.innerHTML = `<li class="mdv-combobox-empty">Sin coincidencias</li>`;
+        return;
+      }
+
+      if (highlightedIdx < 0 || highlightedIdx >= filteredOptions.length) {
+        const selIdx = filteredOptions.findIndex((o) => o.value === selectEl.value);
+        highlightedIdx = selIdx >= 0 ? selIdx : 0;
+      }
+
+      listEl.innerHTML = filteredOptions
+        .map((opt, idx) => {
+          const isSel = opt.value === selectEl.value;
+          const isHi = idx === highlightedIdx;
+          return `
+            <li class="mdv-combobox-option${isSel ? ' is-selected' : ''}${isHi ? ' is-highlighted' : ''}" role="option" aria-selected="${isSel ? 'true' : 'false'}" data-combo-idx="${idx}" data-combo-val="${escapeHtmlAttr(opt.value)}">
+              ${buildLeadHtml(opt.value, opt.label)}
+              <span class="mdv-combobox-opt-text">${escapeHtmlAttr(opt.label)}</span>
+              ${opt.hint ? `<span class="mdv-combobox-opt-hint">${escapeHtmlAttr(opt.hint)}</span>` : ''}
+              <svg class="mdv-combobox-check" viewBox="0 0 16 16" fill="none"><path d="M3.2 8.4l3.1 3.1 6.5-6.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </li>`;
+        })
+        .join('');
+    };
+
+    const updateHighlightDom = () => {
+      const items = listEl.querySelectorAll('.mdv-combobox-option');
+      items.forEach((el, idx) => {
+        const hi = idx === highlightedIdx;
+        el.classList.toggle('is-highlighted', hi);
+        if (hi) el.scrollIntoView({ block: 'nearest' });
+      });
+    };
+
+    const close = ({ restoreTerminalFocus = true } = {}) => {
+      if (!isOpen) return;
+      isOpen = false;
+      if (activeOpenCombobox === api) activeOpenCombobox = null;
+      popover.hidden = true;
+      root.classList.remove('is-open');
+      trigger.setAttribute('aria-expanded', 'false');
+      if (restoreTerminalFocus && focusZone === 'terminal') {
+        activeTermPane()?.term?.focus?.();
+      }
+    };
+
+    const selectOptionAt = (idx) => {
+      const chosen = filteredOptions[idx];
+      if (!chosen) return;
+      const changed = selectEl.value !== chosen.value;
+      selectEl.value = chosen.value;
+      syncTrigger();
+      close({ restoreTerminalFocus: true });
+      if (changed) {
+        selectEl.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+    };
+
+    const open = () => {
+      if (isOpen) {
+        close();
+        return;
+      }
+      if (activeOpenCombobox && activeOpenCombobox !== api) {
+        activeOpenCombobox.close({ restoreTerminalFocus: false });
+      }
+      if (readSelectOptions().length === 0) return;
+      isOpen = true;
+      activeOpenCombobox = api;
+      searchInput.value = '';
+      highlightedIdx = -1;
+      renderList();
+      popover.hidden = false;
+      root.classList.add('is-open');
+      trigger.setAttribute('aria-expanded', 'true');
+      positionPopover();
+      requestAnimationFrame(() => searchInput.focus());
+    };
+
+    trigger.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      open();
+    });
+
+    trigger.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        open();
+      }
+    });
+
+    searchInput.addEventListener('input', () => {
+      highlightedIdx = 0;
+      renderList();
+    });
+
+    searchInput.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        e.stopPropagation();
+        if (filteredOptions.length) {
+          highlightedIdx = (highlightedIdx + 1) % filteredOptions.length;
+          updateHighlightDom();
+        }
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        e.stopPropagation();
+        if (filteredOptions.length) {
+          highlightedIdx = (highlightedIdx - 1 + filteredOptions.length) % filteredOptions.length;
+          updateHighlightDom();
+        }
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        e.stopPropagation();
+        if (highlightedIdx >= 0) selectOptionAt(highlightedIdx);
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        close({ restoreTerminalFocus: true });
+      }
+    });
+
+    listEl.addEventListener('mousemove', (e) => {
+      const optEl = e.target.closest('[data-combo-idx]');
+      if (!optEl) return;
+      const idx = Number(optEl.getAttribute('data-combo-idx'));
+      if (Number.isFinite(idx) && idx !== highlightedIdx) {
+        highlightedIdx = idx;
+        updateHighlightDom();
+      }
+    });
+
+    listEl.addEventListener('mousedown', (e) => {
+      // Prevent blur before click registers
+      e.preventDefault();
+    });
+
+    listEl.addEventListener('click', (e) => {
+      const optEl = e.target.closest('[data-combo-idx]');
+      if (!optEl) return;
+      e.preventDefault();
+      e.stopPropagation();
+      selectOptionAt(Number(optEl.getAttribute('data-combo-idx')));
+    });
+
+    const api = {
+      root,
+      open,
+      close,
+      positionPopover,
+      syncFromSelect() {
+        syncTrigger();
+        if (isOpen) {
+          renderList();
+          positionPopover();
+        }
+      }
+    };
+
+    syncTrigger();
+    return api;
+  }
+
+  document.addEventListener('mousedown', (e) => {
+    if (!activeOpenCombobox) return;
+    if (
+      e.target.closest('.mdv-combobox-popover') ||
+      activeOpenCombobox.root.contains(e.target)
+    ) {
+      return;
+    }
+    activeOpenCombobox.close({ restoreTerminalFocus: false });
+  });
+
+  window.addEventListener('resize', () => {
+    activeOpenCombobox?.positionPopover?.();
+  });
+
+  let themeCombobox = null;
+  let cuTeamCombobox = null;
+
   function currentThemeName() {
     return document.documentElement.getAttribute('data-theme') || 'tokyo';
   }
@@ -495,6 +831,7 @@
   function applyTheme(theme, rerender) {
     document.documentElement.setAttribute('data-theme', theme);
     if (themeSelect) themeSelect.value = theme;
+    themeCombobox?.syncFromSelect();
     localStorage.setItem('mdv-theme', theme);
 
     const xtermTheme = XTERM_THEMES[theme] || XTERM_THEMES.tokyo;
@@ -2824,6 +3161,14 @@
     });
   });
 
+  themeCombobox = createMdvCombobox(themeSelect, {
+    kind: 'theme',
+    filterPlaceholder: 'Filtrar tema...'
+  });
+  cuTeamCombobox = createMdvCombobox(cuTeamSelect, {
+    kind: 'workspace',
+    filterPlaceholder: 'Filtrar workspace...'
+  });
   themeSelect?.addEventListener('change', (e) => applyTheme(e.target.value, true));
   btnFiles?.addEventListener('click', toggleFilesPanel);
   btnToc?.addEventListener('click', toggleTocPanel);
@@ -3357,6 +3702,14 @@
   window.addEventListener(
     'keydown',
     async (e) => {
+      if (activeOpenCombobox) {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          e.stopPropagation();
+          activeOpenCombobox.close({ restoreTerminalFocus: true });
+        }
+        return;
+      }
       const isAltGraph = Boolean(e.getModifierState && e.getModifierState('AltGraph'));
       // Fast path ONLY when zero modifiers (including AltGraph!) are active inside terminal
       if (focusZone === 'terminal' && !e.altKey && !e.ctrlKey && !e.metaKey && !isAltGraph) {
@@ -4958,6 +5311,7 @@
           )
           .join('');
         cuTeamSelect.hidden = data.teams.length === 0;
+        cuTeamCombobox?.syncFromSelect();
       }
 
       if (cuUserBadgeEl) {

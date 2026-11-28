@@ -92,21 +92,47 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* Topbar */
+:root {
+  --topbar-h: 44px;
+}
+
+/* Topbar (Unified App Bar + Native Windows Titlebar) */
 .mdv-topbar {
   position: sticky;
   top: 0;
   z-index: 40;
-  height: 50px;
+  height: var(--topbar-h);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 16px;
+  padding: 0 12px 0 14px;
   background: var(--bg-surface);
   border-bottom: 1px solid var(--border-subtle);
-  gap: 12px;
+  gap: 10px;
   user-select: none;
-  contain: layout style paint;
+  -webkit-app-region: drag;
+}
+
+html.is-native-win .mdv-topbar {
+  padding-right: 0;
+  -webkit-app-region: no-drag;
+}
+
+.mdv-topbar button,
+.mdv-topbar select,
+.mdv-topbar input,
+.mdv-topbar a,
+.mdv-topbar .mdv-combobox,
+.mdv-topbar .mdv-btn-pill-group {
+  -webkit-app-region: no-drag;
+}
+
+/* Support PWA / Edge / Chrome Window Controls Overlay if enabled */
+@media (display-mode: window-controls-overlay) {
+  .mdv-topbar {
+    padding-left: max(14px, env(titlebar-area-x, 0px));
+    padding-right: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw) + 8px);
+  }
 }
 
 .mdv-app-brand {
@@ -167,7 +193,7 @@ body {
 
 .mdv-tool-btn,
 .mdv-theme-select {
-  height: 32px;
+  height: 30px;
   padding: 0 10px;
   border-radius: 8px;
   border: 1px solid var(--border-subtle);
@@ -180,6 +206,261 @@ body {
   gap: 6px;
   cursor: pointer;
   transition: border-color 0.15s, background 0.15s, color 0.15s;
+}
+
+.mdv-native-select-hidden {
+  display: none !important;
+}
+
+/* ============================================================================
+   Sleek Custom Combobox Component (.mdv-combobox + floating .mdv-combobox-popover)
+   ============================================================================ */
+.mdv-combobox {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  flex-shrink: 0;
+}
+
+.mdv-combobox[hidden] {
+  display: none !important;
+}
+
+.mdv-combobox-trigger {
+  height: 30px;
+  padding: 0 9px 0 9px;
+  border-radius: 8px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-elevated);
+  color: var(--text-heading);
+  font-size: 0.79rem;
+  font-weight: 550;
+  font-family: inherit;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+  min-width: 136px;
+  max-width: 220px;
+  outline: none;
+  transition: border-color 0.14s ease, background 0.14s ease, box-shadow 0.14s ease;
+}
+
+.mdv-combobox-trigger:hover {
+  border-color: var(--border-strong);
+  background: color-mix(in srgb, var(--bg-elevated) 75%, var(--bg-hover));
+}
+
+.mdv-combobox.is-open .mdv-combobox-trigger,
+.mdv-combobox-trigger:focus-visible {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.mdv-combobox-lead {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.mdv-combobox-swatch {
+  width: 13px;
+  height: 13px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  display: inline-grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+
+[data-theme="light"] .mdv-combobox-swatch {
+  border-color: rgba(15, 23, 42, 0.18);
+}
+
+.mdv-combobox-swatch-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+}
+
+.mdv-combobox-ws-icon {
+  width: 15px;
+  height: 15px;
+  border-radius: 4px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 0.65rem;
+  font-weight: 750;
+  display: inline-grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+
+.mdv-combobox-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+
+.mdv-combobox-chevron {
+  color: var(--text-muted);
+  flex-shrink: 0;
+  transition: transform 0.16s cubic-bezier(0.16, 1, 0.3, 1), color 0.14s ease;
+}
+
+.mdv-combobox.is-open .mdv-combobox-chevron {
+  transform: rotate(180deg);
+  color: var(--accent);
+}
+
+.mdv-combobox-popover {
+  position: fixed;
+  z-index: 9600;
+  min-width: 196px;
+  max-width: 300px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  box-shadow: 0 16px 38px rgba(0, 0, 0, 0.45), 0 3px 10px rgba(0, 0, 0, 0.22);
+  padding: 5px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  user-select: none;
+  animation: mdvComboIn 0.12s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+[data-theme="light"] .mdv-combobox-popover {
+  box-shadow: 0 14px 32px rgba(15, 23, 42, 0.14), 0 2px 8px rgba(15, 23, 42, 0.07);
+}
+
+.mdv-combobox-popover[hidden] {
+  display: none !important;
+}
+
+@keyframes mdvComboIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.mdv-combobox-search-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  height: 29px;
+  border-radius: 6px;
+  background: var(--bg-code);
+  border: 1px solid var(--border-subtle);
+}
+
+.mdv-combobox-search-wrap:focus-within {
+  border-color: var(--accent);
+}
+
+.mdv-combobox-search-icon {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.mdv-combobox-search {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-heading);
+  font-family: inherit;
+  font-size: 0.77rem;
+  outline: none;
+  padding: 0;
+}
+
+.mdv-combobox-search::placeholder {
+  color: var(--text-muted);
+  opacity: 0.78;
+}
+
+.mdv-combobox-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 230px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.mdv-combobox-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 7px;
+  font-size: 0.79rem;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: background 0.1s ease, color 0.1s ease;
+}
+
+.mdv-combobox-option.is-highlighted {
+  background: var(--bg-hover);
+  color: var(--text-heading);
+}
+
+.mdv-combobox-option.is-selected {
+  background: color-mix(in srgb, var(--accent-soft) 72%, transparent);
+  color: var(--text-heading);
+  font-weight: 600;
+}
+
+.mdv-combobox-option.is-selected.is-highlighted {
+  background: var(--accent-soft);
+}
+
+.mdv-combobox-opt-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mdv-combobox-opt-hint {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+.mdv-combobox-check {
+  width: 13px;
+  height: 13px;
+  color: var(--accent);
+  flex-shrink: 0;
+  opacity: 0;
+}
+
+.mdv-combobox-option.is-selected .mdv-combobox-check {
+  opacity: 1;
+}
+
+.mdv-combobox-empty {
+  padding: 10px 8px;
+  text-align: center;
+  font-size: 0.76rem;
+  color: var(--text-muted);
 }
 
 .mdv-tool-btn:hover,
@@ -198,7 +479,7 @@ body {
 .mdv-layout {
   display: grid;
   grid-template-columns: 240px minmax(0, 1fr) 250px;
-  min-height: calc(100vh - 50px);
+  min-height: calc(100vh - var(--topbar-h));
 }
 
 body.hide-files .mdv-layout {
@@ -216,8 +497,8 @@ body.hide-files.hide-toc .mdv-layout {
 .mdv-sidebar-files,
 .mdv-sidebar-toc {
   position: sticky;
-  top: 50px;
-  height: calc(100vh - 50px);
+  top: var(--topbar-h);
+  height: calc(100vh - var(--topbar-h));
   overflow-y: auto;
   padding: 18px 14px;
   background: color-mix(in srgb, var(--bg-surface) 55%, var(--bg-app));
@@ -1243,7 +1524,7 @@ html, body {
 }
 
 .mdv-layout {
-  height: calc(100vh - 50px);
+  height: calc(100vh - var(--topbar-h));
   min-height: 0;
 }
 
@@ -1788,7 +2069,7 @@ html, body {
   display: flex;
   flex-direction: row;
   width: 100vw;
-  height: calc(100vh - 50px);
+  height: calc(100vh - var(--topbar-h));
   min-height: 0;
   overflow: hidden;
   --mdv-side-width: 46vw;
@@ -3003,9 +3284,11 @@ body.hide-toc #mdv-tab-markdown > .mdv-sidebar-toc {
 html.is-native-win .mdv-win-controls {
   display: inline-flex;
   align-items: stretch;
-  height: 50px;
+  height: var(--topbar-h);
   margin-left: 6px;
-  margin-right: -16px;
+  margin-right: 0;
+  padding-left: 4px;
+  border-left: 1px solid var(--border-subtle);
   flex-shrink: 0;
 }
 

@@ -61,10 +61,25 @@ if [[ "${1:-}" == "--local" ]]; then
         else
           warn "Falló la compilación de Windows con cargo.exe (se usará el mdv.exe existente si está presente)."
         fi
-      elif [[ -f "$WIN_DEST/mdv.exe" ]]; then
-        ok "Host nativo de Windows detectado en $WIN_DEST/mdv.exe"
       else
-        warn "No se encontró cargo.exe en Windows ($WIN_CARGO_EXE) ni $WIN_DEST/mdv.exe."
+        WIN_ZIP_URL="$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null \
+          | grep -oE '"browser_download_url":\s*"[^"]*mdv-windows-x86_64\.zip"' \
+          | head -n 1 \
+          | cut -d'"' -f4 || true)"
+        if [[ -n "$WIN_ZIP_URL" ]] && command -v python3 >/dev/null 2>&1; then
+          info "Descargando ventana nativa de Windows (mdv.exe) desde GitHub Releases..."
+          TMP_WIN_ZIP="$(mktemp --suffix=.zip)"
+          mkdir -p "$WIN_DEST"
+          if curl -fsSL "$WIN_ZIP_URL" -o "$TMP_WIN_ZIP"; then
+            python3 -c "import zipfile; zipfile.ZipFile('$TMP_WIN_ZIP').extract('mdv.exe', '$WIN_DEST')" && chmod +x "$WIN_DEST/mdv.exe" || true
+            ok "App nativa de Windows instalada en $WIN_DEST/mdv.exe"
+          fi
+          rm -f "$TMP_WIN_ZIP"
+        elif [[ -f "$WIN_DEST/mdv.exe" ]]; then
+          ok "Host nativo de Windows detectado en $WIN_DEST/mdv.exe"
+        else
+          warn "No se encontró cargo.exe en Windows ($WIN_CARGO_EXE) ni $WIN_DEST/mdv.exe."
+        fi
       fi
     fi
   fi

@@ -428,6 +428,8 @@ struct DocQuery {
     split: Option<String>,
     hz: Option<u8>,
     dir: Option<u8>,
+    native_win: Option<u8>,
+    max: Option<u8>,
 }
 
 #[derive(Deserialize)]
@@ -600,9 +602,32 @@ fn build_html_shell(
         }
     });
 
+    let is_native_win_ssr = query_overrides
+        .and_then(|q| q.native_win)
+        .map(|v| v == 1)
+        .unwrap_or(false);
+    let html_win_cls = if is_native_win_ssr {
+        r#" class="is-native-win""#
+    } else {
+        ""
+    };
+    let html_win_max = if is_native_win_ssr {
+        let is_max = query_overrides
+            .and_then(|q| q.max)
+            .map(|v| v == 1)
+            .unwrap_or(user_cfg.maximized);
+        if is_max {
+            r#" data-win-maximized="true""#
+        } else {
+            r#" data-win-maximized="false""#
+        }
+    } else {
+        ""
+    };
+
     format!(
         r#"<!DOCTYPE html>
-<html lang="es" data-theme="{theme}">
+<html lang="es" data-theme="{theme}"{html_win_cls}{html_win_max}>
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -616,7 +641,7 @@ fn build_html_shell(
   <link rel="stylesheet" href="/vendor/overlayscrollbars/overlayscrollbars.min.css" />
   <link rel="stylesheet" href="/vendor/xterm/xterm.css" />
   <link rel="stylesheet" href="/vendor/katex/katex.min.css" />
-  <link rel="stylesheet" href="/assets/styles.css?v=2.12.2" />
+  <link rel="stylesheet" href="/assets/styles.css?v=2.13.0" />
 </head>
 <body class="{body_cls_str}">
   <div class="mdv-win-resize-ring" aria-hidden="true">
@@ -876,10 +901,12 @@ fn build_html_shell(
   <script src="/vendor/highlight/highlight.min.js"></script>
   <script src="/vendor/katex/katex.min.js"></script>
   <script src="/vendor/mermaid/mermaid.min.js"></script>
-  <script src="/assets/app.js?v=2.12.2"></script>
+  <script src="/assets/app.js?v=2.13.0"></script>
 </body>
 </html>"#,
         theme = workspace::escape_html_attr(&state.default_theme),
+        html_win_cls = html_win_cls,
+        html_win_max = html_win_max,
         title = workspace::escape_html_attr(&page_title),
         body_cls_str = body_cls_str,
         active_btn_cls = active_btn_cls,
@@ -1397,13 +1424,20 @@ fn find_windows_native_mdv_exe() -> Option<PathBuf> {
     None
 }
 
+fn append_native_win_params(url: &str, maximized: bool) -> String {
+    let sep = if url.contains('?') { '&' } else { '?' };
+    let max_flag = if maximized { 1 } else { 0 };
+    format!("{}{}native_win=1&max={}", url, sep, max_flag)
+}
+
 pub(crate) fn launch_window(url: &str, app_mode: bool, maximized: bool) {
     #[cfg(windows)]
     if app_mode {
         if let Ok(self_exe) = std::env::current_exe() {
             use std::os::windows::process::CommandExt;
+            let native_url = append_native_win_params(url, maximized);
             let mut cmd = Command::new(self_exe);
-            cmd.arg("--app-url").arg(url);
+            cmd.arg("--app-url").arg(&native_url);
             if !maximized {
                 cmd.arg("--windowed");
             }
@@ -1418,8 +1452,9 @@ pub(crate) fn launch_window(url: &str, app_mode: bool, maximized: bool) {
     #[cfg(unix)]
     if app_mode {
         if let Some(win_mdv) = find_windows_native_mdv_exe() {
+            let native_url = append_native_win_params(url, maximized);
             let mut cmd = Command::new(win_mdv);
-            cmd.arg("--app-url").arg(url);
+            cmd.arg("--app-url").arg(&native_url);
             if !maximized {
                 cmd.arg("--windowed");
             }
@@ -2013,7 +2048,7 @@ fn main() {
             });
         });
 
-        let bound_url = url_rx.recv().expect("Local server failed to start");
+        let bound_url = append_native_win_params(&url_rx.recv().expect("Local server failed to start"), maximized);
         win_app::run_native_window(&bound_url, &initial_win_title, maximized, true, stdin_cleanup);
     }
 
