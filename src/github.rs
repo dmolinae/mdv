@@ -410,7 +410,7 @@ async fn resolve_github_scope(state: &AppState, force_refresh: bool) -> Result<G
   }
 }"#;
 
-    let ws_dir = state.workspace_dir.clone();
+    let ws_dir = state.workspace_dir();
     let local_owners_fut = tokio::task::spawn_blocking(move || discover_local_git_owners(&ws_dir));
     let (gql_res, local_owners_res) = tokio::join!(github_graphql_request(state, viewer_q), local_owners_fut);
 

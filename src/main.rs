@@ -34,8 +34,8 @@ use std::{
     path::{Path, PathBuf},
     process::{Command, Stdio},
     sync::{
-        atomic::{AtomicBool, AtomicUsize, Ordering},
-        Arc, Mutex,
+        atomic::{AtomicBool, AtomicU16, AtomicUsize, Ordering},
+        Arc, Mutex, RwLock,
     },
     time::Duration,
 };
@@ -417,10 +417,11 @@ fn percent_encode_query_val(input: &str) -> String {
 }
 
 pub(crate) struct AppState {
-    initial_file: Option<PathBuf>,
+    initial_file: RwLock<Option<PathBuf>>,
     split_file: Option<PathBuf>,
     split_direction: String,
-    workspace_dir: PathBuf,
+    workspace_dir: RwLock<PathBuf>,
+    daemon_port: AtomicU16,
     dir_mode: bool,
     default_theme: String,
     keep_alive: bool,
@@ -432,6 +433,22 @@ pub(crate) struct AppState {
     pub(crate) clickup: clickup::ClickUpRuntime,
     pub(crate) github: github::GitHubRuntime,
     pub(crate) pty_mgr: Arc<pty::PtyManager>,
+}
+
+impl AppState {
+    pub(crate) fn workspace_dir(&self) -> PathBuf {
+        self.workspace_dir
+            .read()
+            .map(|g| g.clone())
+            .unwrap_or_else(|e| e.into_inner().clone())
+    }
+
+    pub(crate) fn initial_file(&self) -> Option<PathBuf> {
+        self.initial_file
+            .read()
+            .map(|g| g.clone())
+            .unwrap_or_else(|e| e.into_inner().clone())
+    }
 }
 
 #[derive(Deserialize, Default)]
@@ -487,6 +504,27 @@ struct ApiDocResponse {
 }
 
 #[derive(Deserialize)]
+struct SetWorkspaceHomePayload {
+    path: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SetWorkspaceHomeResponse {
+    ok: bool,
+    workspace_dir: String,
+    workspace_name: String,
+    file_path: String,
+    file_name: String,
+    rel_path: String,
+    total_files: usize,
+    tree_html: String,
+    html: String,
+    toc: Vec<markdown::TocItem>,
+    title: Option<String>,
+}
+
+#[derive(Deserialize)]
 struct OpenExternalPayload {
     url: String,
 }
@@ -509,15 +547,15 @@ fn build_html_shell(
     query_overrides: Option<&DocQuery>,
 ) -> String {
     let user_cfg = load_user_config();
-    let workspace_name = state
-        .workspace_dir
+    let ws_dir = state.workspace_dir();
+    let workspace_name = ws_dir
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
-        .unwrap_or_else(|| state.workspace_dir.to_string_lossy().to_string());
+        .unwrap_or_else(|| ws_dir.to_string_lossy().to_string());
 
     let rel_display = match file_path {
         Some(fp) => {
-            let rel = workspace::normalize_rel_path(&state.workspace_dir, fp);
+            let rel = workspace::normalize_rel_path(&ws_dir, fp);
             if rel.is_empty() {
                 fp.file_name()
                     .map(|n| n.to_string_lossy().to_string())
@@ -529,7 +567,7 @@ fn build_html_shell(
         None => "Sin .md".to_string(),
     };
 
-    let scan = workspace::scan_markdown_workspace(&state.workspace_dir, 8, 1500);
+    let scan = workspace::scan_markdown_workspace(&ws_dir, 8, 1500);
     let show_sidebar = scan.files.len() > 1;
     let mut body_classes = vec!["hide-toc"];
     if !show_sidebar {
@@ -600,7 +638,7 @@ fn build_html_shell(
         "initialRelPath": if file_path.is_some() { rel_display.clone() } else { String::new() },
         "splitFile": effective_split_file.as_ref().map(|p| p.to_string_lossy()),
         "splitDirection": effective_split_dir,
-        "workspaceDir": state.workspace_dir.to_string_lossy(),
+        "workspaceDir": ws_dir.to_string_lossy(),
         "workspaceName": workspace_name,
         "dirMode": effective_dir_mode,
         "defaultTheme": state.default_theme,
@@ -608,7 +646,7 @@ fn build_html_shell(
         "defaultFontPt": user_cfg.font_pt,
         "defaultTermFont": user_cfg.term_font,
         "maximized": user_cfg.maximized,
-        "savedWorkspaceState": load_workspace_state(&state.workspace_dir),
+        "savedWorkspaceState": load_workspace_state(&ws_dir),
         "clickup": {
             "connected": cu.effective_token().is_some(),
             "hasSavedToken": cu.api_token.as_deref().map(|s| !s.trim().is_empty()).unwrap_or(false),
@@ -655,7 +693,7 @@ fn build_html_shell(
   <link rel="stylesheet" href="/vendor/overlayscrollbars/overlayscrollbars.min.css" />
   <link rel="stylesheet" href="/vendor/xterm/xterm.css" />
   <link rel="stylesheet" href="/vendor/katex/katex.min.css" />
-  <link rel="stylesheet" href="/assets/styles.css?v=2.15.1" />
+  <link rel="stylesheet" href="/assets/styles.css?v=2.16.0" />
 </head>
 <body class="{body_cls_str}">
   <div class="mdv-win-resize-ring" aria-hidden="true">
@@ -695,53 +733,76 @@ fn build_html_shell(
     </div>
 
     <div class="mdv-topbar-right">
-      <select id="mdv-font-pt-select" class="mdv-theme-select" aria-label="Tamaño de letra (pt)" title="Tamaño de letra en pt (- / + / 0)">
-        <option value="6">6 pt</option>
-        <option value="6.5">6.5 pt</option>
-        <option value="7">7 pt</option>
-        <option value="7.5">7.5 pt</option>
-        <option value="8">8 pt</option>
-        <option value="8.5">8.5 pt</option>
-        <option value="9">9 pt</option>
-        <option value="9.5">9.5 pt</option>
-        <option value="10">10 pt</option>
-        <option value="10.5">10.5 pt</option>
-        <option value="11" selected>11 pt</option>
-        <option value="11.5">11.5 pt</option>
-        <option value="12">12 pt</option>
-        <option value="13">13 pt</option>
-        <option value="14">14 pt</option>
-        <option value="15">15 pt</option>
-        <option value="16">16 pt</option>
-        <option value="18">18 pt</option>
-        <option value="20">20 pt</option>
-      </select>
+      <div id="mdv-settings-wrap" class="mdv-settings-wrap">
+        <button type="button" id="mdv-settings-btn" class="mdv-tool-btn mdv-settings-trigger" aria-haspopup="true" aria-expanded="false" aria-label="Preferencias y ayuda" title="Preferencias y ayuda">
+          <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="2.3"/><path d="M13.4 9.2a1.1 1.1 0 0 0 .22 1.21l.04.04a1.34 1.34 0 1 1-1.9 1.9l-.04-.04a1.1 1.1 0 0 0-1.21-.22 1.1 1.1 0 0 0-.67 1.01v.12a1.34 1.34 0 0 1-2.68 0v-.06a1.1 1.1 0 0 0-.72-1.01 1.1 1.1 0 0 0-1.21.22l-.04.04a1.34 1.34 0 1 1-1.9-1.9l.04-.04a1.1 1.1 0 0 0 .22-1.21 1.1 1.1 0 0 0-1.01-.67H2.5a1.34 1.34 0 0 1 0-2.68h.06a1.1 1.1 0 0 0 1.01-.72 1.1 1.1 0 0 0-.22-1.21l-.04-.04a1.34 1.34 0 1 1 1.9-1.9l.04.04a1.1 1.1 0 0 0 1.21.22h.05a1.1 1.1 0 0 0 .67-1.01V2.5a1.34 1.34 0 0 1 2.68 0v.06a1.1 1.1 0 0 0 .67 1.01 1.1 1.1 0 0 0 1.21-.22l.04-.04a1.34 1.34 0 1 1 1.9 1.9l-.04.04a1.1 1.1 0 0 0-.22 1.21v.05a1.1 1.1 0 0 0 1.01.67h.12a1.34 1.34 0 0 1 0 2.68h-.06a1.1 1.1 0 0 0-1.01.67Z"/></svg>
+        </button>
 
-      <select id="mdv-term-font-select" class="mdv-theme-select" aria-label="Fuente de la terminal" title="Cambiar fuente de las terminales">
-        <option value="iosevka">Iosevka Term</option>
-        <option value="jetbrains">JetBrains Mono</option>
-        <option value="cascadia">Cascadia Code</option>
-        <option value="fira">Fira Code</option>
-        <option value="meslo">MesloLGS NF</option>
-        <option value="hack">Hack</option>
-        <option value="0xproto">0xProto</option>
-        <option value="geist">Geist Mono</option>
-        <option value="commit">Commit Mono</option>
-        <option value="victor">Victor Mono</option>
-        <option value="ubuntu">Ubuntu Mono</option>
-        <option value="source-code">Source Code Pro</option>
-        <option value="ibm-plex">IBM Plex Mono</option>
-        <option value="consolas">Consolas</option>
-        <option value="monospace">Sistema Mono</option>
-      </select>
+        <div id="mdv-settings-popover" class="mdv-settings-popover" hidden>
+          <div class="mdv-settings-row">
+            <span class="mdv-settings-label">Tamaño</span>
+            <select id="mdv-font-pt-select" class="mdv-theme-select" aria-label="Tamaño de letra (pt)" title="Tamaño de letra en pt (- / + / 0)">
+              <option value="6">6 pt</option>
+              <option value="6.5">6.5 pt</option>
+              <option value="7">7 pt</option>
+              <option value="7.5">7.5 pt</option>
+              <option value="8">8 pt</option>
+              <option value="8.5">8.5 pt</option>
+              <option value="9">9 pt</option>
+              <option value="9.5">9.5 pt</option>
+              <option value="10">10 pt</option>
+              <option value="10.5">10.5 pt</option>
+              <option value="11" selected>11 pt</option>
+              <option value="11.5">11.5 pt</option>
+              <option value="12">12 pt</option>
+              <option value="13">13 pt</option>
+              <option value="14">14 pt</option>
+              <option value="15">15 pt</option>
+              <option value="16">16 pt</option>
+              <option value="18">18 pt</option>
+              <option value="20">20 pt</option>
+            </select>
+          </div>
 
-      <select id="mdv-theme-select" class="mdv-theme-select" aria-label="Tema visual" title="Cambiar tema (c)">
-        <option value="tokyo">Tokyo Night</option>
-        <option value="github-dark">GitHub Dark</option>
-        <option value="catppuccin">Catppuccin</option>
-        <option value="light">Claro (Paper)</option>
-      </select>
-      <button type="button" id="mdv-open-help" class="mdv-tool-btn" title="Atajos de teclado (?)">?</button>
+          <div class="mdv-settings-row">
+            <span class="mdv-settings-label">Fuente</span>
+            <select id="mdv-term-font-select" class="mdv-theme-select" aria-label="Fuente de la terminal" title="Cambiar fuente de las terminales">
+              <option value="iosevka">Iosevka Term</option>
+              <option value="jetbrains">JetBrains Mono</option>
+              <option value="cascadia">Cascadia Code</option>
+              <option value="fira">Fira Code</option>
+              <option value="meslo">MesloLGS NF</option>
+              <option value="hack">Hack</option>
+              <option value="0xproto">0xProto</option>
+              <option value="geist">Geist Mono</option>
+              <option value="commit">Commit Mono</option>
+              <option value="victor">Victor Mono</option>
+              <option value="ubuntu">Ubuntu Mono</option>
+              <option value="source-code">Source Code Pro</option>
+              <option value="ibm-plex">IBM Plex Mono</option>
+              <option value="consolas">Consolas</option>
+              <option value="monospace">Sistema Mono</option>
+            </select>
+          </div>
+
+          <div class="mdv-settings-row">
+            <span class="mdv-settings-label">Tema</span>
+            <select id="mdv-theme-select" class="mdv-theme-select" aria-label="Tema visual" title="Cambiar tema (c)">
+              <option value="tokyo">Tokyo Night</option>
+              <option value="github-dark">GitHub Dark</option>
+              <option value="catppuccin">Catppuccin</option>
+              <option value="light">Claro (Paper)</option>
+            </select>
+          </div>
+
+          <div class="mdv-settings-divider"></div>
+
+          <button type="button" id="mdv-open-help" class="mdv-settings-action-btn" title="Atajos de teclado (?)">
+            <span>Atajos y ayuda</span>
+            <kbd class="mdv-kbd">?</kbd>
+          </button>
+        </div>
+      </div>
 
       <div class="mdv-btn-pill-group" role="group" aria-label="Panel lateral">
         <button type="button" class="mdv-tool-btn is-active" data-top-tab="markdown" title="Abrir tab Markdown (Alt+1)">
@@ -957,7 +1018,7 @@ fn build_html_shell(
   <script src="/vendor/highlight/highlight.min.js"></script>
   <script src="/vendor/katex/katex.min.js"></script>
   <script src="/vendor/mermaid/mermaid.min.js"></script>
-  <script src="/assets/app.js?v=2.15.2"></script>
+  <script src="/assets/app.js?v=2.16.0"></script>
 </body>
 </html>"#,
         theme = workspace::escape_html_attr(&state.default_theme),
@@ -968,7 +1029,7 @@ fn build_html_shell(
         active_btn_cls = active_btn_cls,
         total_files = scan.files.len(),
         ws_name = workspace::escape_html_attr(&workspace_name),
-        ws_full = workspace::escape_html_attr(&state.workspace_dir.to_string_lossy()),
+        ws_full = workspace::escape_html_attr(&ws_dir.to_string_lossy()),
         rel_display = workspace::escape_html_attr(&rel_display),
         tree_html = tree_html,
         body_html = initial_body_html,
@@ -982,12 +1043,13 @@ async fn index_handler(
     State(state): State<Arc<AppState>>,
     Query(q): Query<DocQuery>,
 ) -> impl IntoResponse {
+    let ws_dir = state.workspace_dir();
     let target = q
         .file
         .as_deref()
         .map(PathBuf::from)
         .filter(|p| p.is_file())
-        .or_else(|| state.initial_file.clone().filter(|p| p.is_file()));
+        .or_else(|| state.initial_file().filter(|p| p.is_file()));
 
     let rendered = if let Some(ref fp) = target {
         if let Some(sig) = compute_file_sha1(fp) {
@@ -996,7 +1058,7 @@ async fn index_handler(
             }
         }
         let raw = fs::read_to_string(fp).unwrap_or_default();
-        let base_dir = fp.parent().unwrap_or(&state.workspace_dir);
+        let base_dir = fp.parent().unwrap_or(&ws_dir);
         markdown::render_markdown_document(&raw, base_dir)
     } else {
         markdown::RenderedDocument {
@@ -1014,21 +1076,21 @@ async fn api_doc_handler(
     State(state): State<Arc<AppState>>,
     Query(q): Query<DocQuery>,
 ) -> Response {
+    let ws_dir = state.workspace_dir();
     let target = q
         .file
         .as_deref()
         .filter(|s| !s.is_empty())
         .map(PathBuf::from)
-        .or_else(|| state.initial_file.clone())
+        .or_else(|| state.initial_file())
         .or_else(|| {
-            let scan = workspace::scan_markdown_workspace(&state.workspace_dir, 8, 1500);
-            workspace::pick_default_markdown_file(&scan.files, &state.workspace_dir)
+            let scan = workspace::scan_markdown_workspace(&ws_dir, 8, 1500);
+            workspace::pick_default_markdown_file(&scan.files, &ws_dir)
         });
 
     let Some(target) = target.filter(|p| p.is_file()) else {
-        let scan = workspace::scan_markdown_workspace(&state.workspace_dir, 8, 1500);
-        let ws_name = state
-            .workspace_dir
+        let scan = workspace::scan_markdown_workspace(&ws_dir, 8, 1500);
+        let ws_name = ws_dir
             .file_name()
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_else(|| "proyecto".to_string());
@@ -1052,15 +1114,15 @@ async fn api_doc_handler(
     }
 
     let raw = fs::read_to_string(&target).unwrap_or_default();
-    let base_dir = target.parent().unwrap_or(&state.workspace_dir);
+    let base_dir = target.parent().unwrap_or(&ws_dir);
     let rendered = markdown::render_markdown_document(&raw, base_dir);
-    let scan = workspace::scan_markdown_workspace(&state.workspace_dir, 8, 1500);
+    let scan = workspace::scan_markdown_workspace(&ws_dir, 8, 1500);
     let file_str = target.to_string_lossy().to_string();
     let file_name = target
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_default();
-    let rel_raw = workspace::normalize_rel_path(&state.workspace_dir, &target);
+    let rel_raw = workspace::normalize_rel_path(&ws_dir, &target);
     let rel_path = if rel_raw.is_empty() {
         file_name.clone()
     } else {
@@ -1078,6 +1140,116 @@ async fn api_doc_handler(
         title: rendered.title,
     })
     .into_response()
+}
+
+async fn api_set_workspace_home_handler(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<SetWorkspaceHomePayload>,
+) -> Response {
+    let raw_input = payload.path.trim();
+    if raw_input.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "Ruta vacía" })),
+        )
+            .into_response();
+    }
+
+    let candidate = PathBuf::from(raw_input);
+    if !candidate.is_dir() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": format!("No existe el directorio '{}'", raw_input) })),
+        )
+            .into_response();
+    }
+
+    let canonical = candidate.canonicalize().unwrap_or(candidate);
+    #[cfg(windows)]
+    let canonical = {
+        let s = canonical.to_string_lossy();
+        if let Some(stripped) = s.strip_prefix(r"\\?\") {
+            PathBuf::from(stripped)
+        } else {
+            canonical
+        }
+    };
+
+    let scan = workspace::scan_markdown_workspace(&canonical, 8, 1500);
+    let default_md = workspace::pick_default_markdown_file(&scan.files, &canonical);
+
+    if let Ok(mut ws_lock) = state.workspace_dir.write() {
+        *ws_lock = canonical.clone();
+    }
+    if let Ok(mut init_lock) = state.initial_file.write() {
+        *init_lock = default_md.clone();
+    }
+    if let Ok(mut wf) = state.watched_files.lock() {
+        wf.clear();
+        if let Some(ref f) = default_md {
+            if let Some(sig) = compute_file_sha1(f) {
+                wf.insert(f.clone(), sig);
+            }
+        }
+    }
+
+    let port = state.daemon_port.load(Ordering::Relaxed);
+    if port != 0 {
+        write_daemon_info(&canonical, port);
+    }
+
+    let ws_str = canonical.to_string_lossy().to_string();
+    let ws_name = canonical
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| ws_str.clone());
+
+    if let Some(target) = default_md.filter(|p| p.is_file()) {
+        let raw = fs::read_to_string(&target).unwrap_or_default();
+        let base_dir = target.parent().unwrap_or(&canonical);
+        let rendered = markdown::render_markdown_document(&raw, base_dir);
+        let file_str = target.to_string_lossy().to_string();
+        let file_name = target
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default();
+        let rel_raw = workspace::normalize_rel_path(&canonical, &target);
+        let rel_path = if rel_raw.is_empty() {
+            file_name.clone()
+        } else {
+            rel_raw
+        };
+
+        Json(SetWorkspaceHomeResponse {
+            ok: true,
+            workspace_dir: ws_str,
+            workspace_name: ws_name,
+            file_path: file_str.clone(),
+            file_name,
+            rel_path,
+            total_files: scan.files.len(),
+            tree_html: workspace::render_tree_nodes_html(&scan.children, &file_str),
+            html: rendered.html,
+            toc: rendered.toc,
+            title: rendered.title,
+        })
+        .into_response()
+    } else {
+        Json(SetWorkspaceHomeResponse {
+            ok: true,
+            workspace_dir: ws_str,
+            workspace_name: ws_name.clone(),
+            file_path: String::new(),
+            file_name: String::new(),
+            rel_path: "Sin .md".to_string(),
+            total_files: scan.files.len(),
+            tree_html: workspace::render_tree_nodes_html(&scan.children, ""),
+            html: build_empty_markdown_html(&ws_name),
+            toc: Vec::new(),
+            title: None,
+        })
+        .into_response()
+    }
 }
 
 async fn api_open_external_handler(Json(payload): Json<OpenExternalPayload>) -> Response {
@@ -1098,10 +1270,11 @@ async fn api_prefs_handler(Json(patch): Json<serde_json::Value>) -> impl IntoRes
 }
 
 async fn api_health_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let ws_dir = state.workspace_dir();
     Json(serde_json::json!({
         "ok": true,
         "pid": std::process::id(),
-        "workspace": state.workspace_dir.to_string_lossy(),
+        "workspace": ws_dir.to_string_lossy(),
         "buildSig": current_build_signature(),
         "activePtys": state.pty_mgr.active_count(),
     }))
@@ -1109,7 +1282,7 @@ async fn api_health_handler(State(state): State<Arc<AppState>>) -> impl IntoResp
 
 async fn api_daemon_stop_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     state.pty_mgr.kill_all();
-    remove_daemon_info(&state.workspace_dir);
+    remove_daemon_info(&state.workspace_dir());
     let st = Arc::clone(&state);
     tokio::spawn(async move {
         tokio::time::sleep(Duration::from_millis(40)).await;
@@ -1122,7 +1295,7 @@ async fn api_daemon_stop_handler(State(state): State<Arc<AppState>>) -> impl Int
 }
 
 async fn api_get_workspace_state_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    Json(load_workspace_state(&state.workspace_dir).unwrap_or(serde_json::Value::Null))
+    Json(load_workspace_state(&state.workspace_dir()).unwrap_or(serde_json::Value::Null))
 }
 
 async fn api_save_workspace_state_handler(
@@ -1131,7 +1304,7 @@ async fn api_save_workspace_state_handler(
 ) -> Response {
     match serde_json::from_slice::<serde_json::Value>(&bytes) {
         Ok(val) if val.is_object() => {
-            save_workspace_state(&state.workspace_dir, &val);
+            save_workspace_state(&state.workspace_dir(), &val);
             Json(serde_json::json!({ "ok": true })).into_response()
         }
         _ => (
@@ -1399,7 +1572,7 @@ async fn api_task_worktrees_handler(
     if codes.is_empty() {
         return Json(serde_json::json!({ "worktreesByCode": {} }));
     }
-    let ws_dir = state.workspace_dir.clone();
+    let ws_dir = state.workspace_dir();
     let map = tokio::task::spawn_blocking(move || {
         workspace::discover_worktrees_for_codes(&ws_dir, &codes)
     })
@@ -1505,7 +1678,7 @@ async fn pty_ws_handler(
         .filter(|s| !s.is_empty())
         .map(PathBuf::from)
         .filter(|p| p.is_dir())
-        .unwrap_or_else(|| state.workspace_dir.clone());
+        .unwrap_or_else(|| state.workspace_dir());
     let cols = q.cols.unwrap_or(90);
     let rows = q.rows.unwrap_or(26);
     let initial_paused = q.paused == Some(1);
@@ -1871,6 +2044,7 @@ fn sanitize_cli_path_arg(raw_arg: &str) -> String {
 }
 
 fn resolve_initial_target(target_arg: Option<&str>, explicit_workspace: Option<&str>) -> (Option<PathBuf>, PathBuf, bool) {
+    #[cfg_attr(not(windows), allow(unused_mut))]
     let mut cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     #[cfg(windows)]
     if target_arg.is_none() && explicit_workspace.is_none() && is_windows_system_or_install_dir(&cwd) {
@@ -2196,14 +2370,15 @@ fn main() {
 
         let record_daemon = cli.stdin_file.is_none() && cli.port == 0;
         let state = Arc::new(AppState {
-            initial_file: initial_file.clone(),
+            initial_file: RwLock::new(initial_file.clone()),
             split_file: resolved_split,
             split_direction: if cli.horizontal {
                 "horizontal".to_string()
             } else {
                 "vertical".to_string()
             },
-            workspace_dir: workspace_dir.clone(),
+            workspace_dir: RwLock::new(workspace_dir.clone()),
+            daemon_port: AtomicU16::new(0),
             dir_mode: effective_dir_mode,
             default_theme: theme,
             keep_alive: cli.keep_alive,
@@ -2225,6 +2400,7 @@ fn main() {
                 .name("mdv-fs-watch".into())
                 .spawn(move || {
                     let mut last_count: Option<usize> = None;
+                    let mut last_ws: Option<PathBuf> = None;
                     let mut tick_num: u32 = 0;
                     loop {
                         std::thread::sleep(Duration::from_millis(350));
@@ -2257,10 +2433,15 @@ fn main() {
                         }
 
                         // 2. Check workspace Markdown file count (every ~4.9s on this dedicated thread)
+                        let cur_ws = st.workspace_dir();
+                        if last_ws.as_ref() != Some(&cur_ws) {
+                            last_ws = Some(cur_ws.clone());
+                            last_count = None;
+                        }
                         tick_num = tick_num.wrapping_add(1);
                         if last_count.is_none() || tick_num % 14 == 0 {
                             let count =
-                                workspace::scan_markdown_workspace(&st.workspace_dir, 8, 1500)
+                                workspace::scan_markdown_workspace(&cur_ws, 8, 1500)
                                     .files
                                     .len();
                             if let Some(prev) = last_count {
@@ -2282,17 +2463,19 @@ fn main() {
             tokio::spawn(async move {
                 tokio::time::sleep(Duration::from_secs(45)).await;
                 if !st.had_client.load(Ordering::SeqCst) {
-                    remove_daemon_info(&st.workspace_dir);
+                    remove_daemon_info(&st.workspace_dir());
                     std::process::exit(0);
                 }
             });
         }
 
+        let state_for_port = Arc::clone(&state);
         let app = Router::new()
             .route("/", get(index_handler))
             .route("/events", get(sse_events_handler))
             .route("/api/health", get(api_health_handler))
             .route("/api/daemon-stop", post(api_daemon_stop_handler))
+            .route("/api/workspace-home", post(api_set_workspace_home_handler))
             .route(
                 "/api/workspace-state",
                 get(api_get_workspace_state_handler).post(api_save_workspace_state_handler),
@@ -2394,6 +2577,9 @@ fn main() {
             .expect("Failed to bind local port");
         let local_addr = listener.local_addr().unwrap();
         if record_daemon {
+            state_for_port
+                .daemon_port
+                .store(local_addr.port(), Ordering::Relaxed);
             write_daemon_info(&workspace_dir, local_addr.port());
         }
         let url = format!("http://127.0.0.1:{}", local_addr.port());

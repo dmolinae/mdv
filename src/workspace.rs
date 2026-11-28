@@ -53,9 +53,8 @@ fn ignored_dirs() -> HashSet<&'static str> {
         ".npm",
         ".npm-global",
         ".local",
-        ".claude",
-        ".gemini",
         ".cursor-server",
+        ".vscode-server",
         ".antigravity-server",
         ".oh-my-zsh",
         "AppData",
@@ -135,7 +134,7 @@ pub fn scan_markdown_workspace(root_dir: &Path, max_depth: usize, max_files: usi
             };
             let name = entry.file_name().to_string_lossy().to_string();
             if file_type.is_dir() {
-                if name.starts_with('.') || ignored.contains(name.as_str()) {
+                if ignored.contains(name.as_str()) {
                     continue;
                 }
                 dirs.push((name, entry.path()));

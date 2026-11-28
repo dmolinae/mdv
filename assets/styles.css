@@ -100,7 +100,7 @@ body {
 .mdv-topbar {
   position: sticky;
   top: 0;
-  z-index: 40;
+  z-index: 80;
   height: var(--topbar-h);
   display: flex;
   align-items: center;
@@ -123,6 +123,7 @@ html.is-native-win .mdv-topbar {
 .mdv-topbar input,
 .mdv-topbar a,
 .mdv-topbar .mdv-combobox,
+.mdv-topbar .mdv-settings-wrap,
 .mdv-topbar .mdv-btn-pill-group {
   -webkit-app-region: no-drag;
 }
@@ -530,6 +531,115 @@ html.is-native-win .mdv-topbar {
   border-color: var(--accent);
   color: var(--accent);
   background: var(--accent-soft);
+}
+
+/* Topbar Gear Settings Popover */
+.mdv-settings-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.mdv-settings-trigger {
+  width: 30px;
+  padding: 0;
+  justify-content: center;
+}
+
+.mdv-settings-trigger svg {
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.mdv-settings-wrap.is-open .mdv-settings-trigger {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.mdv-settings-wrap.is-open .mdv-settings-trigger svg {
+  transform: rotate(35deg);
+}
+
+.mdv-settings-popover {
+  position: absolute;
+  top: calc(100% + 7px);
+  right: 0;
+  z-index: 9500;
+  width: 268px;
+  padding: 9px;
+  border-radius: 11px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-strong);
+  box-shadow: 0 16px 38px rgba(0, 0, 0, 0.45), 0 3px 10px rgba(0, 0, 0, 0.22);
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  animation: mdvComboIn 0.12s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+[data-theme="light"] .mdv-settings-popover {
+  box-shadow: 0 14px 32px rgba(15, 23, 42, 0.14), 0 2px 8px rgba(15, 23, 42, 0.07);
+}
+
+.mdv-settings-popover[hidden] {
+  display: none !important;
+}
+
+.mdv-settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.mdv-settings-label {
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  white-space: nowrap;
+  flex: 0 0 56px;
+}
+
+.mdv-settings-row .mdv-combobox {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.mdv-settings-row .mdv-combobox .mdv-combobox-trigger {
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+}
+
+.mdv-settings-divider {
+  height: 1px;
+  background: var(--border-subtle);
+  margin: 1px 0;
+}
+
+.mdv-settings-action-btn {
+  width: 100%;
+  height: 31px;
+  padding: 0 9px;
+  border-radius: 7px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 0.79rem;
+  font-weight: 550;
+  font-family: inherit;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+
+.mdv-settings-action-btn:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-subtle);
+  color: var(--text-heading);
 }
 
 /* Main 3-column Shell */
@@ -1696,8 +1806,28 @@ html, body {
   transition: all 0.14s;
 }
 
-.mdv-count-chip[hidden] {
+.mdv-count-chip[hidden],
+.mdv-pane-btn[hidden] {
   display: none !important;
+}
+
+.mdv-set-home-btn {
+  color: #10b981;
+  border-color: rgba(16, 185, 129, 0.42);
+  background: rgba(16, 185, 129, 0.1);
+  font-weight: 600;
+}
+
+[data-theme="light"] .mdv-set-home-btn {
+  color: #047857;
+  border-color: rgba(4, 120, 87, 0.35);
+  background: rgba(16, 185, 129, 0.12);
+}
+
+.mdv-set-home-btn:hover {
+  color: #10b981;
+  border-color: #10b981;
+  background: rgba(16, 185, 129, 0.2);
 }
 
 .mdv-pane-btn:hover {

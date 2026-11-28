@@ -118,7 +118,12 @@
   const fontPtSelect = document.getElementById('mdv-font-pt-select');
   const btnSearch = document.getElementById('mdv-open-search');
   const btnHelp = document.getElementById('mdv-open-help');
+  const settingsWrapEl = document.getElementById('mdv-settings-wrap');
+  const btnSettings = document.getElementById('mdv-settings-btn');
+  const settingsPopoverEl = document.getElementById('mdv-settings-popover');
   const topbarEl = document.getElementById('mdv-topbar');
+  const workspaceCrumbEl = document.querySelector('.mdv-workspace-crumb-main');
+  const explorerWorkspaceTitleEl = document.querySelector('.mdv-explorer-header .mdv-panel-title');
   const btnWinMin = document.getElementById('mdv-win-min');
   const btnWinMax = document.getElementById('mdv-win-max');
   const btnWinClose = document.getElementById('mdv-win-close');
@@ -154,7 +159,7 @@
     const isInteractiveTopbarTarget = (target) =>
       Boolean(
         target?.closest?.(
-          'button, select, input, a, .mdv-combobox, .mdv-combobox-popover, .mdv-btn-pill-group, .mdv-win-controls'
+          'button, select, input, a, .mdv-combobox, .mdv-combobox-popover, .mdv-settings-wrap, .mdv-settings-popover, .mdv-btn-pill-group, .mdv-win-controls'
         )
       );
 
@@ -887,7 +892,7 @@
       const changed = selectEl.value !== chosen.value;
       selectEl.value = chosen.value;
       syncTrigger();
-      close({ restoreTerminalFocus: true });
+      close({ restoreTerminalFocus: !isSettingsMenuOpen() });
       if (changed) {
         selectEl.dispatchEvent(new Event('change', { bubbles: true }));
       }
@@ -961,7 +966,7 @@
       } else if (e.key === 'Escape') {
         e.preventDefault();
         e.stopPropagation();
-        close({ restoreTerminalFocus: true });
+        close({ restoreTerminalFocus: !isSettingsMenuOpen() });
       }
     };
 
@@ -1012,15 +1017,59 @@
     return api;
   }
 
-  document.addEventListener('mousedown', (e) => {
-    if (!activeOpenCombobox) return;
+  function isSettingsMenuOpen() {
+    return Boolean(settingsPopoverEl && !settingsPopoverEl.hidden);
+  }
+
+  function closeSettingsMenu({ restoreTerminalFocus = false } = {}) {
+    if (!settingsPopoverEl || settingsPopoverEl.hidden) return;
     if (
-      e.target.closest('.mdv-combobox-popover') ||
-      activeOpenCombobox.root.contains(e.target)
+      activeOpenCombobox &&
+      (activeOpenCombobox === fontPtCombobox ||
+        activeOpenCombobox === termFontCombobox ||
+        activeOpenCombobox === themeCombobox)
     ) {
+      activeOpenCombobox.close({ restoreTerminalFocus: false });
+    }
+    settingsPopoverEl.hidden = true;
+    settingsWrapEl?.classList.remove('is-open');
+    btnSettings?.setAttribute('aria-expanded', 'false');
+    if (restoreTerminalFocus && focusZone === 'terminal') {
+      activeTermPane()?.term?.focus?.();
+    }
+  }
+
+  function toggleSettingsMenu() {
+    if (!settingsPopoverEl) return;
+    if (!settingsPopoverEl.hidden) {
+      closeSettingsMenu({ restoreTerminalFocus: true });
       return;
     }
-    activeOpenCombobox.close({ restoreTerminalFocus: false });
+    if (activeOpenCombobox) {
+      activeOpenCombobox.close({ restoreTerminalFocus: false });
+    }
+    settingsPopoverEl.hidden = false;
+    settingsWrapEl?.classList.add('is-open');
+    btnSettings?.setAttribute('aria-expanded', 'true');
+  }
+
+  document.addEventListener('mousedown', (e) => {
+    if (activeOpenCombobox) {
+      if (
+        !e.target.closest('.mdv-combobox-popover') &&
+        !activeOpenCombobox.root.contains(e.target)
+      ) {
+        activeOpenCombobox.close({ restoreTerminalFocus: false });
+      }
+    }
+    if (isSettingsMenuOpen()) {
+      if (
+        !settingsWrapEl?.contains(e.target) &&
+        !e.target.closest('.mdv-combobox-popover')
+      ) {
+        closeSettingsMenu({ restoreTerminalFocus: false });
+      }
+    }
   });
 
   window.addEventListener('resize', () => {
@@ -1311,6 +1360,10 @@
         const tip = taskMeta.status ? `Estado en ClickUp: ${taskMeta.status}` : taskMeta.code;
         leftBadge = `<span class="mdv-term-task-badge" data-pane-task-badge${colorStyleAttr} title="${escapeHtmlAttr(tip)}">${escapeHtmlAttr(taskMeta.code)}</span>`;
       }
+      const setHomeBtn =
+        !taskMeta && !worktreeMeta
+          ? `<button type="button" class="mdv-pane-btn mdv-set-home-btn" data-pane-set-home="${id}" hidden title="Establecer este directorio como nuevo Home de Markdown"><svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"><path d="M2.2 7.5 8 2.6l5.8 4.9"/><path d="M4.2 6.7v6.3h7.6V6.7"/></svg><span>Nuevo Home</span></button>`
+          : '';
       const wtSlot =
         taskMeta && !worktreeMeta
           ? `<span class="mdv-pane-wt-slot" data-pane-wt-slot hidden></span>`
@@ -1327,6 +1380,7 @@
             <span class="mdv-pane-title" data-pane-title>${escapeHtmlAttr(titleText)}</span>
           </div>
           <div class="mdv-pane-bar-right">
+            ${setHomeBtn}
             ${wtSlot}
             ${hideBtn}
             <button type="button" class="mdv-pane-btn" data-pane-action="term-right" data-target-pane="${id}" title="Split Terminal a la derecha (Ctrl+Alt+R)">+|</button>
@@ -1407,6 +1461,145 @@
     scroller.addEventListener('scroll', () => onMarkdownPaneScroll(pane), { passive: true });
     mdPanes.set(id, pane);
     return pane;
+  }
+
+  function normalizeComparablePath(rawPath) {
+    let s = String(rawPath || '').trim().replace(/\\/g, '/');
+    if (!s) return '';
+    if (s.length > 1 && !(s.length === 3 && /^[a-zA-Z]:\/$/.test(s))) {
+      s = s.replace(/\/+$/, '');
+    }
+    if (/^[a-zA-Z]:/.test(s) || s.startsWith('//wsl')) {
+      s = s.toLowerCase();
+    }
+    return s;
+  }
+
+  function refreshSetHomeButtons() {
+    const homeNorm = normalizeComparablePath(initCfg.workspaceDir);
+    for (const [id, tp] of termPanes.entries()) {
+      const btn = tp.setHomeBtnEl;
+      if (!btn) continue;
+      const isTaskTerm = Boolean(tp.taskMeta || tp.worktreeMeta);
+      const isActiveTerm = id === focusedTermPaneId && !tp.isHidden;
+      const termDir = tp.liveCwd || tp.cwd || '';
+      const termNorm = normalizeComparablePath(termDir);
+      const shouldShow =
+        isActiveTerm &&
+        !isTaskTerm &&
+        Boolean(termNorm) &&
+        Boolean(homeNorm) &&
+        termNorm !== homeNorm;
+      btn.hidden = !shouldShow;
+      if (shouldShow) {
+        btn.title = `Establecer "${termDir}" como nuevo Home de Markdown`;
+      }
+    }
+  }
+
+  function updateTerminalLiveCwd(pane, nextCwd) {
+    const cleaned = String(nextCwd || '').trim();
+    if (!cleaned || !pane) return;
+    const prevNorm = normalizeComparablePath(pane.liveCwd || pane.cwd);
+    const nextNorm = normalizeComparablePath(cleaned);
+    pane.liveCwd = cleaned;
+    pane.cwd = cleaned;
+    if (!pane.taskMeta && !pane.worktreeMeta && !pane.hasCustomOscTitle && pane.titleEl) {
+      const shortDir = cleaned.split(/[/\\]/).filter(Boolean).pop() || 'wsl';
+      pane.titleEl.textContent = `WSL (${shortDir})`;
+    }
+    refreshSetHomeButtons();
+    if (prevNorm !== nextNorm) {
+      scheduleSaveWorkspaceState();
+    }
+  }
+
+  async function setWorkspaceHome(newHomeDir) {
+    const targetDir = String(newHomeDir || '').trim();
+    if (!targetDir) return;
+    try {
+      const res = await fetch('/api/workspace-home', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: targetDir })
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        showToast(errData.error || 'No se pudo cambiar el directorio Home');
+        return;
+      }
+      const data = await res.json();
+      initCfg.workspaceDir = data.workspaceDir || targetDir;
+      initCfg.workspaceName = data.workspaceName || targetDir.split(/[/\\]/).filter(Boolean).pop() || 'mdv';
+
+      if (workspaceCrumbEl) {
+        workspaceCrumbEl.textContent = initCfg.workspaceName;
+        workspaceCrumbEl.title = initCfg.workspaceDir;
+      }
+      if (explorerWorkspaceTitleEl) {
+        explorerWorkspaceTitleEl.textContent = initCfg.workspaceName;
+        explorerWorkspaceTitleEl.title = initCfg.workspaceDir;
+      }
+
+      // Collapse any extra secondary Markdown split panes from the previous Home
+      if (mdPanes.size > 1) {
+        const keepId = focusedMdPaneId && mdPanes.has(focusedMdPaneId) ? focusedMdPaneId : Array.from(mdPanes.keys())[0];
+        for (const pid of Array.from(mdPanes.keys())) {
+          if (pid !== keepId) {
+            closeMarkdownPane(pid);
+          }
+        }
+      }
+
+      const mp = activeMdPane();
+      if (mp) {
+        mp.filePath = data.filePath || '';
+        mp.relPath = data.relPath || data.fileName || 'Sin .md';
+        mp.toc = data.toc || [];
+        mp.article.innerHTML = data.html || '';
+        if (mp.titleEl) mp.titleEl.textContent = mp.relPath;
+        mp.scroller.scrollTop = 0;
+
+        if (totalFilesEl && typeof data.totalFiles === 'number') {
+          totalFilesEl.textContent = String(data.totalFiles);
+        }
+        if (typeof data.totalFiles === 'number' && data.totalFiles > 1 && document.body.classList.contains('hide-files')) {
+          document.body.classList.remove('hide-files');
+          btnFiles?.classList.add('is-active');
+          localStorage.setItem('mdv-hide-files', '0');
+        }
+        if (data.treeHtml !== undefined && fileListEl) {
+          fileListEl.innerHTML = data.treeHtml;
+          if (fileFilterEl?.value) applyFileTreeFilter(fileFilterEl.value);
+        }
+
+        initCarouselsForPane(mp);
+        await renderMermaidDiagrams(mp.article);
+        initHorizontalBlockScrollbars(mp.article);
+        refreshHeadings(mp);
+
+        if (fileNameEl) fileNameEl.textContent = mp.relPath;
+        const nextTitle = data.title || data.fileName || initCfg.workspaceName;
+        document.title = `${nextTitle} — mdv`;
+        postNativeWin(`title:${document.title}`);
+        renderToc(mp.toc);
+        if (lastQuery) highlightQuery(lastQuery);
+        updateFileTreeMarkers();
+
+        if (mp.filePath) {
+          history.replaceState({ file: mp.filePath }, '', `/?file=${encodeURIComponent(mp.filePath)}`);
+        } else {
+          history.replaceState({}, '', '/');
+        }
+      }
+
+      refreshSetHomeButtons();
+      refreshTaskTerminalWorktrees();
+      requestAnimationFrame(() => fitAllTerminals());
+      showToast(`Nuevo Home: ${initCfg.workspaceName}`);
+    } catch {
+      showToast('Error de red al cambiar Home');
+    }
   }
 
   function resolvePreferredCwd() {
@@ -2172,6 +2365,7 @@
     const mountEl = section.querySelector('.mdv-terminal-mount');
     const titleEl = section.querySelector('[data-pane-title]');
     const wtSlotEl = section.querySelector('[data-pane-wt-slot]');
+    const setHomeBtnEl = section.querySelector('[data-pane-set-home]');
 
     const termPx = computeTermFontSize(zoomPercent);
     const term = window.Terminal
@@ -2295,11 +2489,14 @@
       id,
       kind: 'terminal',
       cwd: targetCwd,
+      liveCwd: targetCwd,
+      hasCustomOscTitle: false,
       explicitCwd: Boolean(explicitCwd && cwd),
       taskMeta: taskMeta || null,
       worktreeMeta: worktreeMeta || null,
       worktrees: [],
       wtSlotEl,
+      setHomeBtnEl,
       claudeState: 'none',
       isHidden: false,
       el: section,
@@ -2514,6 +2711,9 @@
                   if (msg.claudeState) {
                     setPaneClaudeState(pane, msg.claudeState);
                   }
+                  if (msg.cwd) {
+                    updateTerminalLiveCwd(pane, msg.cwd);
+                  }
                   if (msg.reattached) {
                     clearTimeout(readyTimer);
                     shellReady = true;
@@ -2529,6 +2729,10 @@
                   term.reset();
                 } else if (msg.type === 'claude_state') {
                   setPaneClaudeState(pane, msg.state);
+                } else if (msg.type === 'cwd') {
+                  if (msg.cwd) {
+                    updateTerminalLiveCwd(pane, msg.cwd);
+                  }
                 } else if (msg.type === 'exit') {
                   if (taskMeta || termPanes.size > 1) {
                     closeTerminalPane(id);
@@ -2573,6 +2777,7 @@
 
         term.onTitleChange((newTitle) => {
           if (!taskMeta && !worktreeMeta && titleEl && newTitle && titleEl.textContent !== newTitle) {
+            pane.hasCustomOscTitle = true;
             titleEl.textContent = newTitle;
           }
         });
@@ -2810,6 +3015,7 @@
         setFocusZone('terminal', next.id, false);
       }
     }
+    refreshSetHomeButtons();
     updateZoneCounts();
     requestAnimationFrame(() => fitAllTerminals());
     renderClickUpTasksList();
@@ -3147,6 +3353,7 @@
       if (focusZone === 'terminal' && next) setFocusZone('terminal', next.id, false);
     }
 
+    refreshSetHomeButtons();
     updateZoneCounts();
     requestAnimationFrame(() => fitAllTerminals());
     renderClickUpTasksList();
@@ -3305,6 +3512,7 @@
         p.section.classList.toggle('is-focused', id === tp.id);
       }
       tp.section.classList.add('is-zone-focused');
+      refreshSetHomeButtons();
       syncFocusedTerminalTaskHighlight({ scrollCard: changedFocus });
       if (changedFocus) {
         scheduleSaveWorkspaceState();
@@ -3315,6 +3523,7 @@
       return;
     }
 
+    refreshSetHomeButtons();
     syncFocusedTerminalTaskHighlight({ scrollCard: false });
 
     if (zone === 'clickup') {
@@ -3605,7 +3814,15 @@
   btnTermV?.addEventListener('click', () => splitTerminalPane(focusedTermPaneId, 'vertical'));
   btnTermH?.addEventListener('click', () => splitTerminalPane(focusedTermPaneId, 'horizontal'));
   btnSearch?.addEventListener('click', () => openSearchBar());
-  btnHelp?.addEventListener('click', () => toggleHelpModal());
+  btnSettings?.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    toggleSettingsMenu();
+  });
+  btnHelp?.addEventListener('click', () => {
+    closeSettingsMenu({ restoreTerminalFocus: false });
+    toggleHelpModal();
+  });
 
   // File Tree Expand / Collapse & Filter
   expandTreeBtn?.addEventListener('click', () => {
@@ -3954,6 +4171,19 @@
       return;
     }
 
+    const setHomeBtn = e.target.closest('[data-pane-set-home]');
+    if (setHomeBtn) {
+      e.preventDefault();
+      e.stopPropagation();
+      const pid = setHomeBtn.getAttribute('data-pane-set-home');
+      const tp = pid ? termPanes.get(pid) : null;
+      const dir = tp?.liveCwd || tp?.cwd || '';
+      if (dir) {
+        await setWorkspaceHome(dir);
+      }
+      return;
+    }
+
     const wtOpenBtn = e.target.closest('[data-open-worktree]');
     if (wtOpenBtn) {
       e.preventDefault();
@@ -4129,7 +4359,15 @@
         if (e.key === 'Escape') {
           e.preventDefault();
           e.stopPropagation();
-          activeOpenCombobox.close({ restoreTerminalFocus: true });
+          activeOpenCombobox.close({ restoreTerminalFocus: !isSettingsMenuOpen() });
+        }
+        return;
+      }
+      if (isSettingsMenuOpen()) {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          e.stopPropagation();
+          closeSettingsMenu({ restoreTerminalFocus: true });
         }
         return;
       }

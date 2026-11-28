@@ -43,12 +43,80 @@ struct ClaudeTracker {
     state: ClaudeState,
     claude_alive: bool,
     osc_hint: Option<ClaudeState>,
+    pending_osc_cwd: Option<PathBuf>,
     last_output_at: Instant,
     last_enter_at: Instant,
     last_keystroke_at: Instant,
     first_seen_at: Option<Instant>,
     osc_scan: OscScanState,
     osc_buf: Vec<u8>,
+}
+
+fn normalize_cwd_path(raw: &str) -> Option<PathBuf> {
+    let trimmed = raw.trim().trim_matches('"');
+    if trimmed.is_empty() {
+        return None;
+    }
+    #[cfg(windows)]
+    {
+        let fwd = trimmed.replace('\\', "/");
+        if let Some(rest) = fwd.strip_prefix("/mnt/") {
+            let bytes = rest.as_bytes();
+            if bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b'/' {
+                let drive = (bytes[0] as char).to_ascii_uppercase();
+                let tail = rest[2..].replace('/', "\\");
+                let win_p = if tail.is_empty() {
+                    PathBuf::from(format!("{}:\\", drive))
+                } else {
+                    PathBuf::from(format!("{}:\\{}", drive, tail))
+                };
+                if win_p.is_dir() {
+                    return Some(win_p);
+                }
+            } else if bytes.len() == 1 && bytes[0].is_ascii_alphabetic() {
+                let drive = (bytes[0] as char).to_ascii_uppercase();
+                let win_p = PathBuf::from(format!("{}:\\", drive));
+                if win_p.is_dir() {
+                    return Some(win_p);
+                }
+            }
+        }
+        if fwd.starts_with('/') && !fwd.starts_with("//") {
+            if let Some(distro) = default_wsl_distro_name() {
+                let unc = PathBuf::from(format!(
+                    r"\\wsl.localhost\{}{}",
+                    distro,
+                    fwd.replace('/', "\\")
+                ));
+                if unc.is_dir() {
+                    return Some(unc);
+                }
+            }
+        }
+        let win_candidate = if fwd.len() >= 4
+            && fwd.as_bytes()[0] == b'/'
+            && fwd.as_bytes()[1].is_ascii_alphabetic()
+            && fwd.as_bytes()[2] == b':'
+        {
+            &trimmed[1..]
+        } else {
+            trimmed
+        };
+        let p = PathBuf::from(win_candidate);
+        if p.is_dir() {
+            return Some(p);
+        }
+        None
+    }
+    #[cfg(not(windows))]
+    {
+        let p = PathBuf::from(trimmed);
+        if p.is_dir() {
+            Some(p)
+        } else {
+            None
+        }
+    }
 }
 
 impl ClaudeTracker {
@@ -60,6 +128,7 @@ impl ClaudeTracker {
             state: ClaudeState::None,
             claude_alive: false,
             osc_hint: None,
+            pending_osc_cwd: None,
             last_output_at: past,
             last_enter_at: past,
             last_keystroke_at: past,
@@ -70,6 +139,30 @@ impl ClaudeTracker {
     }
 
     fn handle_osc_payload(&mut self) {
+        if let Some(raw_cwd) = self.osc_buf.strip_prefix(b"9;9;") {
+            let text = String::from_utf8_lossy(raw_cwd);
+            if let Some(p) = normalize_cwd_path(&text) {
+                self.pending_osc_cwd = Some(p);
+            }
+            return;
+        }
+
+        if let Some(raw_uri) = self.osc_buf.strip_prefix(b"7;") {
+            let uri = String::from_utf8_lossy(raw_uri);
+            if let Some(after_scheme) = uri.trim().strip_prefix("file://") {
+                if let Some(slash_idx) = after_scheme.find('/') {
+                    let encoded_path = &after_scheme[slash_idx..];
+                    let decoded = urlencoding::decode(encoded_path)
+                        .map(|c| c.into_owned())
+                        .unwrap_or_else(|_| encoded_path.to_string());
+                    if let Some(p) = normalize_cwd_path(&decoded) {
+                        self.pending_osc_cwd = Some(p);
+                    }
+                }
+            }
+            return;
+        }
+
         let payload = self
             .osc_buf
             .strip_prefix(b"0;")
@@ -90,6 +183,15 @@ impl ClaudeTracker {
             Some(_) => {
                 // Non-Claude title (e.g. bash/zsh prompt title after exiting Claude)
                 self.osc_hint = None;
+                #[cfg(windows)]
+                if let Some((_, dir_part)) = title.rsplit_once(": ") {
+                    let d = dir_part.trim();
+                    if d.starts_with('/') || (d.len() >= 3 && d.as_bytes()[1] == b':') {
+                        if let Some(p) = normalize_cwd_path(d) {
+                            self.pending_osc_cwd = Some(p);
+                        }
+                    }
+                }
             }
             None => {}
         }
@@ -351,6 +453,7 @@ pub struct TaskPtyEnv {
 enum PtyEvent {
     Output(Vec<u8>),
     ClaudeState(ClaudeState),
+    CwdChanged(String),
     Exited,
 }
 
@@ -363,6 +466,8 @@ pub struct PtySession {
     history: Mutex<VecDeque<u8>>,
     claude_tracker: Mutex<ClaudeTracker>,
     claude_alive_fast: AtomicBool,
+    osc_in_progress: AtomicBool,
+    current_cwd: Mutex<PathBuf>,
     last_dims: Mutex<(u16, u16)>,
     output_tx: broadcast::Sender<PtyEvent>,
     exited: AtomicBool,
@@ -376,16 +481,61 @@ impl PtySession {
             .unwrap_or(ClaudeState::None)
     }
 
+    fn current_cwd_string(&self) -> String {
+        self.current_cwd
+            .lock()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_default()
+    }
+
+    fn update_cwd(&self, next_path: PathBuf) {
+        if next_path.as_os_str().is_empty() {
+            return;
+        }
+        let changed_str = if let Ok(mut guard) = self.current_cwd.lock() {
+            if *guard == next_path {
+                None
+            } else {
+                *guard = next_path.clone();
+                Some(next_path.to_string_lossy().to_string())
+            }
+        } else {
+            None
+        };
+        if let Some(s) = changed_str {
+            let _ = self.output_tx.send(PtyEvent::CwdChanged(s));
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    fn refresh_cwd_from_proc(&self) {
+        let Some(pid) = self.shell_pid else {
+            return;
+        };
+        if let Ok(target) = std::fs::read_link(format!("/proc/{}/cwd", pid)) {
+            if !target.to_string_lossy().ends_with(" (deleted)") {
+                self.update_cwd(target);
+            }
+        }
+    }
+
     fn on_output_chunk(&self, chunk: &[u8]) {
-        // Fast path: when Claude is not running and chunk contains no ESC (0x1b) for OSC titles,
+        // Fast path: when Claude is not running, no OSC scan is mid-stream, and chunk contains no ESC (0x1b),
         // skip locking claude_tracker completely on normal shell/vim output!
-        if !self.claude_alive_fast.load(Ordering::Relaxed) && !chunk.contains(&0x1b) {
+        if !self.claude_alive_fast.load(Ordering::Relaxed)
+            && !self.osc_in_progress.load(Ordering::Relaxed)
+            && !chunk.contains(&0x1b)
+        {
             return;
         }
         let mut changed = None;
+        let mut osc_cwd = None;
         if let Ok(mut tr) = self.claude_tracker.lock() {
             let now = Instant::now();
             tr.ingest_output(chunk, now);
+            self.osc_in_progress
+                .store(tr.osc_scan != OscScanState::Normal, Ordering::Relaxed);
+            osc_cwd = tr.pending_osc_cwd.take();
             #[cfg(not(target_os = "linux"))]
             {
                 let _ = self.shell_pid;
@@ -398,6 +548,9 @@ impl PtySession {
                 tr.state = next;
                 changed = Some(next);
             }
+        }
+        if let Some(cwd_path) = osc_cwd {
+            self.update_cwd(cwd_path);
         }
         if let Some(next) = changed {
             let _ = self.output_tx.send(PtyEvent::ClaudeState(next));
@@ -602,6 +755,8 @@ impl PtyManager {
             history: Mutex::new(VecDeque::with_capacity(16384)),
             claude_tracker: Mutex::new(ClaudeTracker::new()),
             claude_alive_fast: AtomicBool::new(false),
+            osc_in_progress: AtomicBool::new(false),
+            current_cwd: Mutex::new(cwd),
             last_dims: Mutex::new((size.cols, size.rows)),
             output_tx,
             exited: AtomicBool::new(false),
@@ -644,6 +799,7 @@ impl PtyManager {
                             };
                             for sess in &active_sessions {
                                 if !sess.exited.load(Ordering::Relaxed) {
+                                    sess.refresh_cwd_from_proc();
                                     sess.refresh_with_proc_map(proc_map.as_ref());
                                 }
                             }
@@ -751,8 +907,8 @@ fn apply_task_env(cmd: &mut CommandBuilder, task_env: &TaskPtyEnv) {
 }
 
 #[cfg(windows)]
-fn has_installed_wsl_distro() -> bool {
-    use std::os::windows::ffi::OsStrExt;
+fn query_hkcu_reg_string(subkey_str: &str, value_str: &str) -> Option<String> {
+    use std::os::windows::ffi::{OsStrExt, OsStringExt};
     const HKEY_CURRENT_USER: isize = (0x8000_0001u32 as i32) as isize;
     const KEY_READ: u32 = 0x20019;
 
@@ -776,11 +932,11 @@ fn has_installed_wsl_distro() -> bool {
         fn RegCloseKey(hkey: isize) -> i32;
     }
 
-    let subkey: Vec<u16> = std::ffi::OsStr::new(r"Software\Microsoft\Windows\CurrentVersion\Lxss")
+    let subkey: Vec<u16> = std::ffi::OsStr::new(subkey_str)
         .encode_wide()
         .chain(std::iter::once(0))
         .collect();
-    let val_name: Vec<u16> = std::ffi::OsStr::new("DefaultDistribution")
+    let val_name: Vec<u16> = std::ffi::OsStr::new(value_str)
         .encode_wide()
         .chain(std::iter::once(0))
         .collect();
@@ -788,20 +944,69 @@ fn has_installed_wsl_distro() -> bool {
     unsafe {
         let mut hkey: isize = 0;
         if RegOpenKeyExW(HKEY_CURRENT_USER, subkey.as_ptr(), 0, KEY_READ, &mut hkey) != 0 {
-            return false;
+            return None;
         }
         let mut data_len: u32 = 0;
-        let status = RegQueryValueExW(
+        if RegQueryValueExW(
             hkey,
             val_name.as_ptr(),
             std::ptr::null(),
             std::ptr::null_mut(),
             std::ptr::null_mut(),
             &mut data_len,
+        ) != 0
+            || data_len < 4
+        {
+            let _ = RegCloseKey(hkey);
+            return None;
+        }
+        let mut buf: Vec<u16> = vec![0u16; (data_len as usize + 1) / 2];
+        let status = RegQueryValueExW(
+            hkey,
+            val_name.as_ptr(),
+            std::ptr::null(),
+            std::ptr::null_mut(),
+            buf.as_mut_ptr() as *mut u8,
+            &mut data_len,
         );
         let _ = RegCloseKey(hkey);
-        status == 0 && data_len > 2
+        if status != 0 {
+            return None;
+        }
+        let u16_len = (data_len as usize / 2).min(buf.len());
+        let slice = &buf[..u16_len];
+        let end = slice.iter().position(|&c| c == 0).unwrap_or(slice.len());
+        let s = std::ffi::OsString::from_wide(&slice[..end])
+            .to_string_lossy()
+            .trim()
+            .to_string();
+        if s.is_empty() {
+            None
+        } else {
+            Some(s)
+        }
     }
+}
+
+#[cfg(windows)]
+fn has_installed_wsl_distro() -> bool {
+    query_hkcu_reg_string(
+        r"Software\Microsoft\Windows\CurrentVersion\Lxss",
+        "DefaultDistribution",
+    )
+    .is_some()
+}
+
+#[cfg(windows)]
+fn default_wsl_distro_name() -> Option<String> {
+    let guid = query_hkcu_reg_string(
+        r"Software\Microsoft\Windows\CurrentVersion\Lxss",
+        "DefaultDistribution",
+    )?;
+    query_hkcu_reg_string(
+        &format!(r"Software\Microsoft\Windows\CurrentVersion\Lxss\{}", guid),
+        "DistributionName",
+    )
 }
 
 fn build_shell_command(cwd: &Path, task_env: &TaskPtyEnv) -> CommandBuilder {
@@ -841,7 +1046,12 @@ fn build_shell_command(cwd: &Path, task_env: &TaskPtyEnv) -> CommandBuilder {
             "powershell.exe".to_string()
         };
         let mut cmd = CommandBuilder::new(shell);
-        cmd.arg("-NoLogo");
+        cmd.args([
+            "-NoLogo",
+            "-NoExit",
+            "-Command",
+            "$__mdv_p = $function:prompt; function global:prompt { \"$([char]27)]9;9;$($executionContext.SessionState.Path.CurrentFileSystemLocation.ProviderPath)$([char]7)\" + (& $__mdv_p) }",
+        ]);
         cmd.cwd(cwd);
         apply_task_env(&mut cmd, task_env);
         cmd
@@ -881,11 +1091,13 @@ pub async fn handle_pty_ws(
     let (mut ws_sender, mut ws_receiver) = socket.split();
 
     let initial_claude_state = session.current_claude_state();
+    let initial_cwd = session.current_cwd_string();
     let ready_msg = serde_json::json!({
         "type": "ready",
         "sessionId": session.id,
         "reattached": is_reattach,
         "claudeState": initial_claude_state.as_str(),
+        "cwd": initial_cwd,
     })
     .to_string();
 
@@ -909,12 +1121,23 @@ pub async fn handle_pty_ws(
     let send_task = tokio::spawn(async move {
         let mut is_paused = *pause_rx.borrow();
         let mut pending_claude_state: Option<ClaudeState> = None;
+        let mut pending_cwd: Option<String> = None;
 
         loop {
             if let Some(st) = pending_claude_state.take() {
                 let payload = serde_json::json!({
                     "type": "claude_state",
                     "state": st.as_str(),
+                })
+                .to_string();
+                if ws_sender.send(Message::Text(payload)).await.is_err() {
+                    break;
+                }
+            }
+            if let Some(cwd_val) = pending_cwd.take() {
+                let payload = serde_json::json!({
+                    "type": "cwd",
+                    "cwd": cwd_val,
                 })
                 .to_string();
                 if ws_sender.send(Message::Text(payload)).await.is_err() {
@@ -973,6 +1196,9 @@ pub async fn handle_pty_ws(
                                     Ok(PtyEvent::ClaudeState(st)) => {
                                         pending_claude_state = Some(st);
                                     }
+                                    Ok(PtyEvent::CwdChanged(cwd_val)) => {
+                                        pending_cwd = Some(cwd_val);
+                                    }
                                     Ok(PtyEvent::Exited) => {
                                         saw_exit = true;
                                         break;
@@ -997,6 +1223,16 @@ pub async fn handle_pty_ws(
                             let payload = serde_json::json!({
                                 "type": "claude_state",
                                 "state": st.as_str(),
+                            })
+                            .to_string();
+                            if ws_sender.send(Message::Text(payload)).await.is_err() {
+                                break;
+                            }
+                        }
+                        Ok(PtyEvent::CwdChanged(cwd_val)) => {
+                            let payload = serde_json::json!({
+                                "type": "cwd",
+                                "cwd": cwd_val,
                             })
                             .to_string();
                             if ws_sender.send(Message::Text(payload)).await.is_err() {
