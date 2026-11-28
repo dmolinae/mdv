@@ -641,7 +641,7 @@ fn build_html_shell(
   <link rel="stylesheet" href="/vendor/overlayscrollbars/overlayscrollbars.min.css" />
   <link rel="stylesheet" href="/vendor/xterm/xterm.css" />
   <link rel="stylesheet" href="/vendor/katex/katex.min.css" />
-  <link rel="stylesheet" href="/assets/styles.css?v=2.13.0" />
+  <link rel="stylesheet" href="/assets/styles.css?v=2.13.1" />
 </head>
 <body class="{body_cls_str}">
   <div class="mdv-win-resize-ring" aria-hidden="true">
