@@ -572,7 +572,7 @@ fn build_html_shell(
     };
 
     let scan = workspace::scan_markdown_workspace(&ws_dir, 8, 1500);
-    let show_sidebar = scan.files.len() > 1;
+    let show_sidebar = !scan.files.is_empty();
     let mut body_classes = vec!["hide-toc"];
     if !show_sidebar {
         body_classes.push("hide-files");
@@ -698,7 +698,7 @@ fn build_html_shell(
   <link rel="stylesheet" href="/vendor/overlayscrollbars/overlayscrollbars.min.css" />
   <link rel="stylesheet" href="/vendor/xterm/xterm.css" />
   <link rel="stylesheet" href="/vendor/katex/katex.min.css" />
-  <link rel="stylesheet" href="/assets/styles.css?v=2.17.0" />
+  <link rel="stylesheet" href="/assets/styles.css?v=2.18.0" />
 </head>
 <body class="{body_cls_str}">
   <div class="mdv-win-resize-ring" aria-hidden="true">
@@ -875,6 +875,7 @@ fn build_html_shell(
               <span>Archivos</span>
               <span id="mdv-total-files" class="mdv-count-chip">{total_files}</span>
             </button>
+            <button type="button" id="mdv-md-refresh" class="mdv-pane-btn" title="Actualizar listado de archivos Markdown (r)">↻ Actualizar</button>
             <button type="button" id="mdv-split-vertical" class="mdv-pane-btn" title="Dividir MD a la derecha">MD |</button>
             <button type="button" id="mdv-split-horizontal" class="mdv-pane-btn" title="Dividir MD abajo">MD —</button>
             <button type="button" id="mdv-open-search" class="mdv-pane-btn" title="Buscar en documento (/)">/</button>
@@ -901,6 +902,7 @@ fn build_html_shell(
             <div class="mdv-explorer-header">
               <h2 class="mdv-panel-title" title="{ws_full}">{ws_name}</h2>
               <div class="mdv-explorer-actions">
+                <button type="button" id="mdv-tree-refresh" class="mdv-mini-btn" title="Actualizar listado de archivos .md (r)">↻</button>
                 <button type="button" id="mdv-tree-expand-all" class="mdv-mini-btn" title="Expandir subcarpetas">+</button>
                 <button type="button" id="mdv-tree-collapse-all" class="mdv-mini-btn" title="Colapsar subcarpetas">−</button>
               </div>
@@ -1029,7 +1031,7 @@ fn build_html_shell(
   <script src="/vendor/highlight/highlight.min.js"></script>
   <script src="/vendor/katex/katex.min.js"></script>
   <script src="/vendor/mermaid/mermaid.min.js"></script>
-  <script src="/assets/app.js?v=2.17.0"></script>
+  <script src="/assets/app.js?v=2.18.0"></script>
 </body>
 </html>"#,
         theme = workspace::escape_html_attr(&state.default_theme),
@@ -1094,10 +1096,17 @@ async fn api_doc_handler(
         .as_deref()
         .filter(|s| !s.is_empty())
         .map(PathBuf::from)
-        .or_else(|| state.initial_file())
+        .filter(|p| p.is_file())
+        .or_else(|| state.initial_file().filter(|p| p.is_file()))
         .or_else(|| {
             let scan = workspace::scan_markdown_workspace(&ws_dir, 8, 1500);
-            workspace::pick_default_markdown_file(&scan.files, &ws_dir)
+            let picked = workspace::pick_default_markdown_file(&scan.files, &ws_dir);
+            if picked.is_some() {
+                if let Ok(mut init_lock) = state.initial_file.write() {
+                    *init_lock = picked.clone();
+                }
+            }
+            picked
         });
 
     let Some(target) = target.filter(|p| p.is_file()) else {
@@ -1167,25 +1176,14 @@ async fn api_set_workspace_home_handler(
             .into_response();
     }
 
-    let candidate = PathBuf::from(raw_input);
-    if !candidate.is_dir() {
+    let canonical = workspace::clean_canonical_path(Path::new(raw_input));
+    if !canonical.is_dir() {
         return (
             StatusCode::BAD_REQUEST,
             Json(serde_json::json!({ "error": format!("No existe el directorio '{}'", raw_input) })),
         )
             .into_response();
     }
-
-    let canonical = candidate.canonicalize().unwrap_or(candidate);
-    #[cfg(windows)]
-    let canonical = {
-        let s = canonical.to_string_lossy();
-        if let Some(stripped) = s.strip_prefix(r"\\?\") {
-            PathBuf::from(stripped)
-        } else {
-            canonical
-        }
-    };
 
     let scan = workspace::scan_markdown_workspace(&canonical, 8, 1500);
     let default_md = workspace::pick_default_markdown_file(&scan.files, &canonical);
@@ -1691,7 +1689,7 @@ async fn pty_ws_handler(
         .as_deref()
         .map(str::trim)
         .filter(|s| !s.is_empty())
-        .map(PathBuf::from)
+        .map(|s| workspace::clean_canonical_path(Path::new(s)))
         .filter(|p| p.is_dir())
         .unwrap_or_else(|| state.workspace_dir());
     let cols = q.cols.unwrap_or(90);
@@ -2090,16 +2088,7 @@ fn resolve_initial_target(target_arg: Option<&str>, explicit_workspace: Option<&
         std::process::exit(1);
     }
 
-    let canonical = raw.canonicalize().unwrap_or(raw);
-    #[cfg(windows)]
-    let canonical = {
-        let s = canonical.to_string_lossy();
-        if let Some(stripped) = s.strip_prefix(r"\\?\") {
-            PathBuf::from(stripped)
-        } else {
-            canonical
-        }
-    };
+    let canonical = workspace::clean_canonical_path(&raw);
 
     if canonical.is_dir() {
         let scan = workspace::scan_markdown_workspace(&canonical, 8, 1500);

@@ -19,7 +19,6 @@ pub struct FileEntry {
 
 #[derive(Clone, Debug)]
 pub enum TreeNode {
-    Dir { children: Vec<TreeNode> },
     File(FileEntry),
 }
 
@@ -28,57 +27,154 @@ pub struct ScanResult {
     pub files: Vec<FileEntry>,
 }
 
-fn ignored_dirs() -> HashSet<&'static str> {
-    HashSet::from([
-        "node_modules",
-        ".git",
-        ".hg",
-        ".svn",
-        "target",
-        "dist",
-        "build",
-        "out",
-        "coverage",
-        "vendor",
-        "__pycache__",
-        "venv",
-        ".venv",
-        ".next",
-        ".nuxt",
-        ".svelte-kit",
-        ".turbo",
-        ".cache",
-        ".cargo",
-        ".rustup",
-        ".npm",
-        ".npm-global",
-        ".local",
-        ".cursor-server",
-        ".vscode-server",
-        ".antigravity-server",
-        ".oh-my-zsh",
-        "AppData",
-        "tmp",
-        "log",
-        "storage",
-        "public",
-        "packs",
-        "worktrees",
-        ".worktrees",
-        "dumps",
-        "backups",
-        "bundle",
-        ".bundle",
-        "bower_components",
-        "postgres",
-        "pgdata",
-        ".terraform",
-        ".direnv",
-        "Downloads",
-        "Pictures",
-        "Videos",
-        "Music",
-    ])
+fn is_ignored_dir_name(name: &str) -> bool {
+    matches!(
+        name.to_ascii_lowercase().as_str(),
+        "node_modules"
+            | ".git"
+            | ".hg"
+            | ".svn"
+            | "target"
+            | "dist"
+            | "build"
+            | "out"
+            | "coverage"
+            | "vendor"
+            | "__pycache__"
+            | "venv"
+            | ".venv"
+            | ".next"
+            | ".nuxt"
+            | ".svelte-kit"
+            | ".turbo"
+            | ".cache"
+            | ".cargo"
+            | ".rustup"
+            | ".npm"
+            | ".npm-global"
+            | ".nvm"
+            | ".fnm"
+            | ".volta"
+            | ".bun"
+            | ".deno"
+            | ".pnpm-store"
+            | ".yarn"
+            | ".nuget"
+            | ".dotnet"
+            | ".gradle"
+            | ".m2"
+            | ".ivy2"
+            | ".sbt"
+            | ".conda"
+            | ".anaconda"
+            | "anaconda3"
+            | "miniconda3"
+            | ".pyenv"
+            | ".rbenv"
+            | ".asdf"
+            | ".mise"
+            | ".sdkman"
+            | ".opam"
+            | ".ghcup"
+            | ".elan"
+            | ".local"
+            | ".mozilla"
+            | ".thunderbird"
+            | ".pki"
+            | ".gnupg"
+            | ".ssh"
+            | ".dbus"
+            | ".gvfs"
+            | ".trash"
+            | "$recycle.bin"
+            | "system volume information"
+            | ".cursor-server"
+            | ".vscode-server"
+            | ".vscode-remote"
+            | ".antigravity-server"
+            | ".oh-my-zsh"
+            | "extensions"
+            | "cacheddata"
+            | "cachedextensionvsixs"
+            | "code cache"
+            | "gpucache"
+            | "dawnwebgpucache"
+            | "dawngraphitecache"
+            | "cache"
+            | "crashpad"
+            | "blob_storage"
+            | "session storage"
+            | "local storage"
+            | "indexeddb"
+            | "service worker"
+            | "shell-snapshots"
+            | "statsig"
+            | "telemetry"
+            | "appdata"
+            | "application data"
+            | "local settings"
+            | "cookies"
+            | "nethood"
+            | "printhood"
+            | "recent"
+            | "sendto"
+            | "templates"
+            | "3d objects"
+            | "saved games"
+            | "searches"
+            | "contacts"
+            | "links"
+            | "favorites"
+            | "microsoftedgebackups"
+            | "onedrivetemp"
+            | "tmp"
+            | "log"
+            | "storage"
+            | "public"
+            | "packs"
+            | "worktrees"
+            | ".worktrees"
+            | "dumps"
+            | "backups"
+            | "bundle"
+            | ".bundle"
+            | "bower_components"
+            | "postgres"
+            | "pgdata"
+            | ".terraform"
+            | ".direnv"
+            | "downloads"
+            | "pictures"
+            | "videos"
+            | "music"
+    )
+}
+
+pub fn clean_canonical_path(path: &Path) -> PathBuf {
+    #[cfg(windows)]
+    let repaired = {
+        let raw_s = path.to_string_lossy();
+        if let Some(unc_tail) = raw_s.strip_prefix(r"UNC\") {
+            PathBuf::from(format!(r"\\{}", unc_tail))
+        } else {
+            path.to_path_buf()
+        }
+    };
+    #[cfg(not(windows))]
+    let repaired = path.to_path_buf();
+
+    let canonical = repaired.canonicalize().unwrap_or(repaired);
+    #[cfg(windows)]
+    {
+        let s = canonical.to_string_lossy();
+        if let Some(unc_tail) = s.strip_prefix(r"\\?\UNC\") {
+            return PathBuf::from(format!(r"\\{}", unc_tail));
+        }
+        if let Some(stripped) = s.strip_prefix(r"\\?\") {
+            return PathBuf::from(stripped);
+        }
+    }
+    canonical
 }
 
 pub fn escape_html_attr(s: &str) -> String {
@@ -89,10 +185,22 @@ pub fn escape_html_attr(s: &str) -> String {
 }
 
 pub fn normalize_rel_path(root: &Path, full: &Path) -> String {
-    full.strip_prefix(root)
-        .unwrap_or(full)
-        .to_string_lossy()
-        .replace('\\', "/")
+    if let Ok(rel) = full.strip_prefix(root) {
+        return rel.to_string_lossy().replace('\\', "/");
+    }
+    #[cfg(windows)]
+    {
+        let r_str = root.to_string_lossy().replace('\\', "/");
+        let r_trim = r_str.trim_end_matches('/');
+        let f_str = full.to_string_lossy().replace('\\', "/");
+        if f_str.len() > r_trim.len()
+            && f_str[..r_trim.len()].eq_ignore_ascii_case(r_trim)
+            && f_str.as_bytes().get(r_trim.len()) == Some(&b'/')
+        {
+            return f_str[r_trim.len() + 1..].to_string();
+        }
+    }
+    full.to_string_lossy().replace('\\', "/")
 }
 
 pub fn is_markdown_file(name: &str) -> bool {
@@ -100,107 +208,97 @@ pub fn is_markdown_file(name: &str) -> bool {
     lower.ends_with(".md") || lower.ends_with(".markdown")
 }
 
+/// Level-order (BFS) Markdown workspace scanner so large directories like a user's personal folder
+/// (`~` or `C:\Users\<user>`) ALWAYS discover shallow `.md` files and project folders first without
+/// starving behind deep nested cache directories.
 pub fn scan_markdown_workspace(root_dir: &Path, max_depth: usize, max_files: usize) -> ScanResult {
-    let ignored = ignored_dirs();
+    use std::collections::VecDeque;
+
     let mut files = Vec::new();
     let mut visited_entries: usize = 0;
-    const MAX_VISITED_ENTRIES: usize = 10_000;
+    const MAX_VISITED_ENTRIES: usize = 65_000;
 
-    fn walk(
-        current_dir: &Path,
-        root_dir: &Path,
-        depth: usize,
-        max_depth: usize,
-        max_files: usize,
-        ignored: &HashSet<&str>,
-        files: &mut Vec<FileEntry>,
-        visited_entries: &mut usize,
-    ) -> Option<(usize, Vec<TreeNode>)> {
-        if depth > max_depth || files.len() >= max_files || *visited_entries >= MAX_VISITED_ENTRIES {
-            return None;
+    let mut seen_symlink_dirs: HashSet<PathBuf> = HashSet::new();
+    let mut queue: VecDeque<(PathBuf, usize)> = VecDeque::new();
+    queue.push_back((root_dir.to_path_buf(), 0));
+
+    while let Some((current_dir, depth)) = queue.pop_front() {
+        if depth > max_depth || files.len() >= max_files {
+            break;
         }
-        let read_dir = fs::read_dir(current_dir).ok()?;
-        let mut dirs = Vec::new();
-        let mut md_files = Vec::new();
+        if depth > 0 && visited_entries >= MAX_VISITED_ENTRIES {
+            break;
+        }
+
+        let Ok(read_dir) = fs::read_dir(&current_dir) else {
+            continue;
+        };
+
+        let mut subdirs: Vec<(String, PathBuf)> = Vec::new();
+        let mut md_files: Vec<(String, PathBuf)> = Vec::new();
 
         for entry in read_dir.flatten() {
-            *visited_entries += 1;
-            if *visited_entries > MAX_VISITED_ENTRIES {
+            visited_entries += 1;
+            if depth > 0 && visited_entries > MAX_VISITED_ENTRIES {
                 break;
             }
-            let file_type = match entry.file_type() {
-                Ok(ft) => ft,
-                Err(_) => continue,
+            let Ok(file_type) = entry.file_type() else {
+                continue;
             };
             let name = entry.file_name().to_string_lossy().to_string();
+            let path = entry.path();
+
             if file_type.is_dir() {
-                if ignored.contains(name.as_str()) {
+                if is_ignored_dir_name(&name) {
                     continue;
                 }
-                dirs.push((name, entry.path()));
-            } else if file_type.is_file() && is_markdown_file(&name) {
-                md_files.push((name, entry.path()));
-            }
-        }
-
-        dirs.sort_by(|a, b| a.0.to_lowercase().cmp(&b.0.to_lowercase()));
-        md_files.sort_by(|a, b| a.0.to_lowercase().cmp(&b.0.to_lowercase()));
-
-        let mut children = Vec::new();
-        let mut count = 0usize;
-
-        for (_d_name, d_path) in dirs {
-            if files.len() >= max_files || *visited_entries >= MAX_VISITED_ENTRIES {
-                break;
-            }
-            if let Some((sub_count, sub_children)) = walk(
-                &d_path,
-                root_dir,
-                depth + 1,
-                max_depth,
-                max_files,
-                ignored,
-                files,
-                visited_entries,
-            ) {
-                if sub_count > 0 {
-                    count += sub_count;
-                    children.push(TreeNode::Dir {
-                        children: sub_children,
-                    });
+                subdirs.push((name, path));
+            } else if file_type.is_file() {
+                if is_markdown_file(&name) {
+                    md_files.push((name, path));
+                }
+            } else if file_type.is_symlink() {
+                if is_markdown_file(&name) && path.is_file() {
+                    md_files.push((name, path));
+                } else if depth <= 2 && !is_ignored_dir_name(&name) && path.is_dir() {
+                    let target = clean_canonical_path(&path);
+                    if seen_symlink_dirs.insert(target) {
+                        subdirs.push((name, path));
+                    }
                 }
             }
         }
 
+        md_files.sort_by(|a, b| a.0.to_lowercase().cmp(&b.0.to_lowercase()));
         for (f_name, f_path) in md_files {
             if files.len() >= max_files {
                 break;
             }
-            let entry = FileEntry {
+            files.push(FileEntry {
                 name: f_name,
                 rel_path: normalize_rel_path(root_dir, &f_path),
                 full_path: f_path.to_string_lossy().to_string(),
-            };
-            files.push(entry.clone());
-            children.push(TreeNode::File(entry));
-            count += 1;
+            });
         }
 
-        Some((count, children))
+        if depth < max_depth && files.len() < max_files && visited_entries < MAX_VISITED_ENTRIES {
+            // Visit regular folders before hidden dot-folders at the same depth so project folders
+            // (`code/`, `Documents/`, `Desktop/`, `docs/`) get priority over deep `.config` trees.
+            subdirs.sort_by(|a, b| {
+                let a_dot = a.0.starts_with('.');
+                let b_dot = b.0.starts_with('.');
+                a_dot
+                    .cmp(&b_dot)
+                    .then_with(|| a.0.to_lowercase().cmp(&b.0.to_lowercase()))
+            });
+            for (_d_name, d_path) in subdirs {
+                queue.push_back((d_path, depth + 1));
+            }
+        }
     }
 
-    let children = walk(
-        root_dir,
-        root_dir,
-        0,
-        max_depth,
-        max_files,
-        &ignored,
-        &mut files,
-        &mut visited_entries,
-    )
-    .map(|(_, c)| c)
-    .unwrap_or_default();
+    files.sort_by(|a, b| a.rel_path.to_lowercase().cmp(&b.rel_path.to_lowercase()));
+    let children: Vec<TreeNode> = files.iter().cloned().map(TreeNode::File).collect();
 
     ScanResult { children, files }
 }
@@ -210,7 +308,6 @@ pub fn render_tree_nodes_html(nodes: &[TreeNode], active_file_path: &str) -> Str
         for n in nodes {
             match n {
                 TreeNode::File(f) => acc.push(f),
-                TreeNode::Dir { children, .. } => flatten_files(children, acc),
             }
         }
     }
@@ -522,16 +619,7 @@ pub fn discover_worktrees_for_codes(
         let mut seen_paths = HashSet::new();
         let mut list = Vec::new();
         for (repo, path) in items {
-            let canon = path.canonicalize().unwrap_or(path);
-            #[cfg(windows)]
-            let canon = {
-                let s = canon.to_string_lossy();
-                if let Some(stripped) = s.strip_prefix(r"\\?\") {
-                    PathBuf::from(stripped)
-                } else {
-                    canon
-                }
-            };
+            let canon = clean_canonical_path(&path);
             let path_str = canon.to_string_lossy().to_string();
             if seen_paths.insert(path_str.clone()) {
                 list.push(TaskWorktreeInfo {

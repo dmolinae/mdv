@@ -184,9 +184,34 @@ impl ClaudeTracker {
                 // Non-Claude title (e.g. bash/zsh prompt title after exiting Claude)
                 self.osc_hint = None;
                 #[cfg(windows)]
-                if let Some((_, dir_part)) = title.rsplit_once(": ") {
+                if let Some((host_part, dir_part)) = title.rsplit_once(": ") {
                     let d = dir_part.trim();
-                    if d.starts_with('/') || (d.len() >= 3 && d.as_bytes()[1] == b':') {
+                    if d == "~" || d.starts_with("~/") {
+                        let wsl_user = host_part
+                            .trim()
+                            .rsplit_once(' ')
+                            .map(|(_, u)| u)
+                            .unwrap_or_else(|| host_part.trim())
+                            .split('@')
+                            .next()
+                            .unwrap_or("")
+                            .trim();
+                        if !wsl_user.is_empty() {
+                            let base_home = if wsl_user == "root" {
+                                "/root".to_string()
+                            } else {
+                                format!("/home/{}", wsl_user)
+                            };
+                            let expanded = if d == "~" {
+                                base_home
+                            } else {
+                                format!("{}{}", base_home, &d[1..])
+                            };
+                            if let Some(p) = normalize_cwd_path(&expanded) {
+                                self.pending_osc_cwd = Some(p);
+                            }
+                        }
+                    } else if d.starts_with('/') || (d.len() >= 3 && d.as_bytes()[1] == b':') {
                         if let Some(p) = normalize_cwd_path(d) {
                             self.pending_osc_cwd = Some(p);
                         }
@@ -1009,6 +1034,47 @@ fn default_wsl_distro_name() -> Option<String> {
     )
 }
 
+#[cfg(windows)]
+fn parse_wsl_unc_path(path: &Path) -> Option<(String, String)> {
+    let raw = path.to_string_lossy();
+    let norm = raw.trim().replace('/', "\\");
+    let stripped = norm
+        .strip_prefix(r"\\?\UNC\")
+        .map(|s| format!(r"\\{}", s))
+        .or_else(|| norm.strip_prefix(r"UNC\").map(|s| format!(r"\\{}", s)))
+        .unwrap_or_else(|| {
+            norm.strip_prefix(r"\\?\")
+                .map(|s| s.to_string())
+                .unwrap_or(norm)
+        });
+
+    let lower = stripped.to_ascii_lowercase();
+    let after_prefix = if lower.starts_with(r"\\wsl.localhost\") {
+        &stripped[r"\\wsl.localhost\".len()..]
+    } else if lower.starts_with(r"\\wsl$\") {
+        &stripped[r"\\wsl$\".len()..]
+    } else {
+        return None;
+    };
+
+    let trimmed = after_prefix.trim_matches('\\');
+    if trimmed.is_empty() {
+        return None;
+    }
+    match trimmed.split_once('\\') {
+        Some((distro, rest)) if !distro.is_empty() => {
+            let linux_path = if rest.is_empty() {
+                "/".to_string()
+            } else {
+                format!("/{}", rest.replace('\\', "/"))
+            };
+            Some((distro.to_string(), linux_path))
+        }
+        Some(_) => None,
+        None => Some((trimmed.to_string(), "/".to_string())),
+    }
+}
+
 fn build_shell_command(cwd: &Path, task_env: &TaskPtyEnv) -> CommandBuilder {
     #[cfg(unix)]
     {
@@ -1029,11 +1095,43 @@ fn build_shell_command(cwd: &Path, task_env: &TaskPtyEnv) -> CommandBuilder {
 
     #[cfg(windows)]
     {
+        let safe_win_cwd = dirs::home_dir()
+            .filter(|p| p.is_dir())
+            .unwrap_or_else(|| PathBuf::from(r"C:\"));
+
         let wsl_exe = Path::new(r"C:\Windows\System32\wsl.exe");
         if wsl_exe.exists() && has_installed_wsl_distro() {
             let mut cmd = CommandBuilder::new(wsl_exe);
-            cmd.arg("--cd");
-            cmd.arg(cwd.as_os_str());
+            // Always give ConPTY CreateProcessW a local Win32 drive directory (never UNC)
+            cmd.cwd(&safe_win_cwd);
+
+            if let Some((distro, linux_path)) = parse_wsl_unc_path(cwd) {
+                cmd.arg("-d");
+                cmd.arg(&distro);
+                cmd.arg("--cd");
+                cmd.arg(&linux_path);
+            } else {
+                let cwd_str = cwd.to_string_lossy();
+                let cleaned = cwd_str.strip_prefix(r"\\?\").unwrap_or(&cwd_str).trim();
+                if cleaned.starts_with(r"\\") || cleaned.is_empty() {
+                    // Network UNC share or empty path: wsl.exe --cd rejects UNC with Wsl/E_INVALIDARG
+                    cmd.arg("--cd");
+                    cmd.arg("~");
+                } else if cleaned.starts_with('/') || cleaned == "~" || cleaned.starts_with("~/") {
+                    cmd.arg("--cd");
+                    cmd.arg(cleaned);
+                } else {
+                    // Normal Win32 drive path (e.g. C:\Users\daniel\code); strip non-root trailing '\'
+                    let win_dir = if cleaned.len() > 3 {
+                        cleaned.trim_end_matches('\\')
+                    } else {
+                        cleaned
+                    };
+                    cmd.arg("--cd");
+                    cmd.arg(win_dir);
+                }
+            }
+
             cmd.env("TERM", "xterm-256color");
             cmd.env("COLORTERM", "truecolor");
             apply_task_env(&mut cmd, task_env);
@@ -1052,7 +1150,11 @@ fn build_shell_command(cwd: &Path, task_env: &TaskPtyEnv) -> CommandBuilder {
             "-Command",
             "$__mdv_p = $function:prompt; function global:prompt { \"$([char]27)]9;9;$($executionContext.SessionState.Path.CurrentFileSystemLocation.ProviderPath)$([char]7)\" + (& $__mdv_p) }",
         ]);
-        cmd.cwd(cwd);
+        if cwd.is_dir() && !cwd.to_string_lossy().starts_with(r"\\") {
+            cmd.cwd(cwd);
+        } else {
+            cmd.cwd(&safe_win_cwd);
+        }
         apply_task_env(&mut cmd, task_env);
         cmd
     }

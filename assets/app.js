@@ -107,6 +107,8 @@
   const termFontSelect = document.getElementById('mdv-term-font-select');
   const themeSelect = document.getElementById('mdv-theme-select');
   const btnFiles = document.getElementById('mdv-toggle-files');
+  const btnMdRefresh = document.getElementById('mdv-md-refresh');
+  const btnTreeRefresh = document.getElementById('mdv-tree-refresh');
   const btnToc = document.getElementById('mdv-toggle-toc');
   const btnWide = document.getElementById('mdv-toggle-wide');
   const btnSplitV = document.getElementById('mdv-split-vertical');
@@ -1567,7 +1569,7 @@
         if (totalFilesEl && typeof data.totalFiles === 'number') {
           totalFilesEl.textContent = String(data.totalFiles);
         }
-        if (typeof data.totalFiles === 'number' && data.totalFiles > 1 && document.body.classList.contains('hide-files')) {
+        if (typeof data.totalFiles === 'number' && data.totalFiles >= 1 && document.body.classList.contains('hide-files')) {
           document.body.classList.remove('hide-files');
           btnFiles?.classList.add('is-active');
           localStorage.setItem('mdv-hide-files', '0');
@@ -3808,7 +3810,25 @@
   fontPtSelect?.addEventListener('change', (e) => applyFontPt(Number(e.target.value), true));
   termFontSelect?.addEventListener('change', (e) => applyTermFont(e.target.value, true));
   themeSelect?.addEventListener('change', (e) => applyTheme(e.target.value, true));
+  async function refreshMarkdownList({ announce = true } = {}) {
+    const mp = activeMdPane();
+    if (!mp) return;
+    await loadDocumentInPane(mp.id, mp.filePath || '', { preserveScroll: true, isLiveReload: false });
+    const countNum = Number(totalFilesEl?.textContent || 0);
+    if (countNum >= 1 && document.body.classList.contains('hide-files')) {
+      document.body.classList.remove('hide-files');
+      btnFiles?.classList.add('is-active');
+      localStorage.setItem('mdv-hide-files', '0');
+      requestAnimationFrame(() => fitAllTerminals());
+    }
+    if (announce) {
+      showToast(`Listado Markdown actualizado (${countNum})`);
+    }
+  }
+
   btnFiles?.addEventListener('click', toggleFilesPanel);
+  btnMdRefresh?.addEventListener('click', () => refreshMarkdownList({ announce: true }));
+  btnTreeRefresh?.addEventListener('click', () => refreshMarkdownList({ announce: true }));
   btnToc?.addEventListener('click', toggleTocPanel);
   btnFocusTermZone?.addEventListener('click', () => setFocusZone('terminal', focusedTermPaneId));
   btnToggleSideZone?.addEventListener('click', () => toggleSideZone(true));
@@ -4749,6 +4769,10 @@
           case 'Enter':
             e.preventDefault();
             await activateTreeCursorItem({ stayInFiles: false });
+            return;
+          case 'r':
+            e.preventDefault();
+            await refreshMarkdownList({ announce: true });
             return;
           case 'O':
             e.preventDefault();
