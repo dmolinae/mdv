@@ -118,6 +118,10 @@
   const fontPtSelect = document.getElementById('mdv-font-pt-select');
   const btnSearch = document.getElementById('mdv-open-search');
   const btnHelp = document.getElementById('mdv-open-help');
+  const btnCheckUpdates = document.getElementById('mdv-check-updates');
+  const checkUpdatesLabelEl = document.getElementById('mdv-check-updates-label');
+  const appVersionPillEl = document.getElementById('mdv-app-version-pill');
+  const settingsUpdateDotEl = document.getElementById('mdv-settings-update-dot');
   const settingsWrapEl = document.getElementById('mdv-settings-wrap');
   const btnSettings = document.getElementById('mdv-settings-btn');
   const settingsPopoverEl = document.getElementById('mdv-settings-popover');
@@ -3819,6 +3823,14 @@
     e.stopPropagation();
     toggleSettingsMenu();
   });
+  btnCheckUpdates?.addEventListener('click', () => {
+    closeSettingsMenu({ restoreTerminalFocus: false });
+    if (latestUpdateInfo?.updateAvailable) {
+      openUpdateModal(latestUpdateInfo);
+    } else {
+      checkForAppUpdates({ manual: true });
+    }
+  });
   btnHelp?.addEventListener('click', () => {
     closeSettingsMenu({ restoreTerminalFocus: false });
     toggleHelpModal();
@@ -4278,7 +4290,9 @@
     }
 
     if (e.target === modalEl) {
-      modalEl.hidden = true;
+      if (!isInstallingUpdate) {
+        modalEl.hidden = true;
+      }
       return;
     }
 
@@ -4368,6 +4382,20 @@
           e.preventDefault();
           e.stopPropagation();
           closeSettingsMenu({ restoreTerminalFocus: true });
+        }
+        return;
+      }
+      if (modalEl && !modalEl.hidden && e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!isInstallingUpdate) {
+          if (modalBodyEl?.querySelector('[data-update-dialog]') && latestUpdateInfo?.latestVersion) {
+            dismissUpdateNotice(latestUpdateInfo.latestVersion);
+          }
+          modalEl.hidden = true;
+          if (focusZone === 'terminal') {
+            activeTermPane()?.term?.focus?.();
+          }
         }
         return;
       }
@@ -6394,6 +6422,298 @@
     }
   });
 
+  // =========================================================================
+  // IN-APP AUTO-UPDATER (PERIODIC RELEASE CHECK + 1-CLICK INSTALL & HOT RESTART)
+  // =========================================================================
+  const UPDATE_POLL_INTERVAL_MS = 30 * 60 * 1000; // Check every 30 minutes
+  const UPDATE_VISIBILITY_MIN_GAP_MS = 15 * 60 * 1000;
+  let latestUpdateInfo = null;
+  let lastUpdateCheckAt = 0;
+  let isCheckingUpdate = false;
+  let isInstallingUpdate = false;
+
+  function getDismissedUpdateVersion() {
+    try {
+      return sessionStorage.getItem('mdv-dismissed-update-ver') || '';
+    } catch {
+      return '';
+    }
+  }
+
+  function dismissUpdateNotice(ver) {
+    if (!ver) return;
+    try {
+      sessionStorage.setItem('mdv-dismissed-update-ver', String(ver));
+    } catch {}
+  }
+
+  function applyUpdateBadgeUi(info) {
+    const hasUpd = Boolean(info?.updateAvailable && info?.latestVersion);
+    if (settingsUpdateDotEl) {
+      settingsUpdateDotEl.hidden = !hasUpd;
+    }
+    btnCheckUpdates?.classList.toggle('has-update', hasUpd);
+    if (hasUpd) {
+      if (checkUpdatesLabelEl) {
+        checkUpdatesLabelEl.textContent = `Actualizar a v${info.latestVersion}`;
+      }
+      if (appVersionPillEl) {
+        appVersionPillEl.textContent = 'Nuevo';
+      }
+    } else {
+      if (checkUpdatesLabelEl) {
+        checkUpdatesLabelEl.textContent = 'Buscar actualizaciones';
+      }
+      if (appVersionPillEl) {
+        appVersionPillEl.textContent = `v${info?.currentVersion || initCfg.appVersion || '2.2.0'}`;
+      }
+    }
+  }
+
+  function formatReleaseNotesPlain(rawNotes) {
+    const trimmed = String(rawNotes || '').trim();
+    if (!trimmed) {
+      return 'Incluye mejoras de estabilidad, interfaz nativa y correcciones publicadas en el último release de GitHub.';
+    }
+    return trimmed;
+  }
+
+  function openUpdateModal(info) {
+    if (!modalEl || !modalBodyEl || !info?.latestVersion) return;
+    if (isInstallingUpdate) return;
+
+    const curVer = info.currentVersion || initCfg.appVersion || '';
+    const nextVer = info.latestVersion;
+    const notesText = formatReleaseNotesPlain(info.releaseNotes);
+    const relUrl = info.releaseUrl || 'https://github.com/dmolinae/mdv/releases/latest';
+
+    modalBodyEl.innerHTML = `
+      <div class="mdv-update-dialog" data-update-dialog>
+        <div class="mdv-update-head">
+          <div class="mdv-update-title-wrap">
+            <span class="mdv-update-badge">Nueva actualización disponible</span>
+            <h3 class="mdv-update-title">${escapeHtmlText(info.releaseName || `mdv v${nextVer}`)}</h3>
+            <p class="mdv-update-sub">Puedes actualizar y recargar mdv automáticamente en segundos sin perder tu espacio de trabajo.</p>
+          </div>
+          <span class="mdv-update-ver-pill">v${escapeHtmlText(curVer)} → <strong>v${escapeHtmlText(nextVer)}</strong></span>
+        </div>
+
+        <div class="mdv-update-notes">${escapeHtmlText(notesText)}</div>
+
+        <div id="mdv-update-status" class="mdv-update-status" hidden>
+          <span id="mdv-update-spinner" class="mdv-update-spinner"></span>
+          <span id="mdv-update-status-text">Preparando actualización...</span>
+        </div>
+
+        <div class="mdv-update-actions">
+          <button type="button" class="mdv-update-link" data-update-open-notes="${escapeHtmlAttr(relUrl)}">Ver release en GitHub ↗</button>
+          <div class="mdv-update-btn-row">
+            <button type="button" id="mdv-update-later-btn" class="mdv-update-secondary-btn">Más tarde</button>
+            <button type="button" id="mdv-update-now-btn" class="mdv-update-primary-btn">Actualizar ahora</button>
+          </div>
+        </div>
+      </div>`;
+
+    const laterBtn = modalBodyEl.querySelector('#mdv-update-later-btn');
+    const nowBtn = modalBodyEl.querySelector('#mdv-update-now-btn');
+    const openNotesBtn = modalBodyEl.querySelector('[data-update-open-notes]');
+
+    openNotesBtn?.addEventListener('click', () => {
+      openExternalUrl(relUrl);
+    });
+
+    laterBtn?.addEventListener('click', () => {
+      if (isInstallingUpdate) return;
+      dismissUpdateNotice(nextVer);
+      modalEl.hidden = true;
+      if (focusZone === 'terminal') {
+        activeTermPane()?.term?.focus?.();
+      }
+    });
+
+    nowBtn?.addEventListener('click', () => {
+      performInAppUpdate(info);
+    });
+
+    if (document.activeElement?.closest('.xterm')) {
+      document.activeElement.blur();
+    }
+    modalEl.hidden = false;
+    requestAnimationFrame(() => nowBtn?.focus?.());
+  }
+
+  async function performInAppUpdate(info) {
+    if (isInstallingUpdate || !info) return;
+    isInstallingUpdate = true;
+
+    const laterBtn = modalBodyEl?.querySelector('#mdv-update-later-btn');
+    const nowBtn = modalBodyEl?.querySelector('#mdv-update-now-btn');
+    const statusBox = modalBodyEl?.querySelector('#mdv-update-status');
+    const spinnerEl = modalBodyEl?.querySelector('#mdv-update-spinner');
+    const statusTextEl = modalBodyEl?.querySelector('#mdv-update-status-text');
+
+    if (laterBtn) laterBtn.disabled = true;
+    if (nowBtn) {
+      nowBtn.disabled = true;
+      nowBtn.textContent = 'Actualizando...';
+    }
+    if (statusBox) {
+      statusBox.hidden = false;
+      statusBox.classList.remove('is-error');
+    }
+    if (spinnerEl) spinnerEl.hidden = false;
+    if (statusTextEl) {
+      statusTextEl.textContent = `Descargando e instalando mdv v${info.latestVersion}...`;
+    }
+
+    let previousPid = null;
+    try {
+      const hRes = await fetch(`/api/health?_t=${Date.now()}`, { cache: 'no-store' });
+      if (hRes.ok) {
+        const hJson = await hRes.json();
+        previousPid = hJson.pid ?? null;
+      }
+    } catch {}
+
+    try {
+      // Persist current terminal split layout right before restarting server
+      clearTimeout(saveWsTimer);
+      await fetch('/api/workspace-state', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(buildWorkspaceStateSnapshot())
+      });
+    } catch {}
+
+    try {
+      const res = await fetch('/api/update/install', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tagName: info.tagName || `v${info.latestVersion}` })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || 'No se pudo completar la descarga de la actualización.');
+      }
+
+      if (data.alreadyUpToDate) {
+        isInstallingUpdate = false;
+        modalEl.hidden = true;
+        showToast(`✓ Ya estás en mdv v${data.newVersion}`);
+        return;
+      }
+
+      if (statusTextEl) {
+        statusTextEl.textContent = `✓ Binario v${data.newVersion || info.latestVersion} instalado — Reiniciando servidor...`;
+      }
+
+      if (data.reopenWindow) {
+        return;
+      }
+
+      // Poll /api/health until the restarted server responds with the new PID / new version
+      const targetVer = data.newVersion || info.latestVersion;
+      const deadline = Date.now() + 25000;
+      let sawServerDownOrChanged = false;
+
+      while (Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 320));
+        try {
+          const check = await fetch(`/api/health?_t=${Date.now()}`, { cache: 'no-store' });
+          if (check.ok) {
+            const h = await check.json();
+            const pidChanged = previousPid !== null && h.pid && h.pid !== previousPid;
+            const verMatched = h.version === targetVer;
+            if (pidChanged || verMatched || sawServerDownOrChanged) {
+              if (statusTextEl) {
+                statusTextEl.textContent = `¡Listo! Recargando mdv v${h.version || targetVer}...`;
+              }
+              window.location.reload();
+              return;
+            }
+          } else {
+            sawServerDownOrChanged = true;
+          }
+        } catch {
+          sawServerDownOrChanged = true;
+        }
+      }
+
+      // Fallback reload if deadline elapsed
+      window.location.reload();
+    } catch (err) {
+      isInstallingUpdate = false;
+      if (laterBtn) laterBtn.disabled = false;
+      if (nowBtn) {
+        nowBtn.disabled = false;
+        nowBtn.textContent = 'Reintentar actualización';
+      }
+      if (spinnerEl) spinnerEl.hidden = true;
+      if (statusBox) statusBox.classList.add('is-error');
+      if (statusTextEl) {
+        statusTextEl.textContent = err?.message || 'Error al instalar la actualización.';
+      }
+    }
+  }
+
+  async function checkForAppUpdates({ manual = false } = {}) {
+    if (isCheckingUpdate || isInstallingUpdate) return;
+    isCheckingUpdate = true;
+    if (manual) {
+      showToast('Buscando actualizaciones...');
+    }
+    try {
+      const qs = manual ? 'force=1&' : '';
+      const res = await fetch(`/api/update/check?${qs}_t=${Date.now()}`, { cache: 'no-store' });
+      const data = await res.json().catch(() => ({}));
+      lastUpdateCheckAt = Date.now();
+
+      if (!res.ok || !data.ok) {
+        if (manual) {
+          showToast(data.error || 'No se pudo comprobar actualizaciones');
+        }
+        return;
+      }
+
+      latestUpdateInfo = data;
+      applyUpdateBadgeUi(data);
+
+      if (data.updateAvailable) {
+        const dismissed = getDismissedUpdateVersion();
+        if (manual || dismissed !== data.latestVersion) {
+          openUpdateModal(data);
+        }
+      } else if (manual) {
+        showToast(`✓ Estás en la última versión (v${data.currentVersion})`);
+      }
+    } catch {
+      if (manual) {
+        showToast('Sin conexión para comprobar actualizaciones');
+      }
+    } finally {
+      isCheckingUpdate = false;
+    }
+  }
+
+  function startPeriodicUpdateChecks() {
+    setTimeout(() => {
+      checkForAppUpdates({ manual: false });
+    }, 8000);
+
+    setInterval(() => {
+      checkForAppUpdates({ manual: false });
+    }, UPDATE_POLL_INTERVAL_MS);
+
+    document.addEventListener('visibilitychange', () => {
+      if (
+        document.visibilityState === 'visible' &&
+        Date.now() - lastUpdateCheckAt >= UPDATE_VISIBILITY_MIN_GAP_MS
+      ) {
+        checkForAppUpdates({ manual: false });
+      }
+    });
+  }
+
   function connectEvents() {
     const es = new EventSource('/events');
     es.onopen = () => liveDotEl?.classList.remove('is-disconnected');
@@ -6587,6 +6907,7 @@
   scheduleSaveWorkspaceState();
   refreshTaskTerminalWorktrees();
   connectEvents();
+  startPeriodicUpdateChecks();
 
   if (initCfg.splitFile) {
     splitMarkdownPane(rootMdPane.id, initCfg.splitDirection || 'vertical', initCfg.splitFile).then(() => {

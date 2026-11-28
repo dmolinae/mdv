@@ -5,6 +5,7 @@ mod clickup;
 mod github;
 mod markdown;
 mod pty;
+mod updater;
 #[cfg(windows)]
 mod win_app;
 mod workspace;
@@ -421,7 +422,9 @@ pub(crate) struct AppState {
     split_file: Option<PathBuf>,
     split_direction: String,
     workspace_dir: RwLock<PathBuf>,
-    daemon_port: AtomicU16,
+    pub(crate) bound_port: AtomicU16,
+    record_daemon_flag: bool,
+    pub(crate) is_foreground_win: bool,
     dir_mode: bool,
     default_theme: String,
     keep_alive: bool,
@@ -432,6 +435,7 @@ pub(crate) struct AppState {
     had_client: AtomicBool,
     pub(crate) clickup: clickup::ClickUpRuntime,
     pub(crate) github: github::GitHubRuntime,
+    pub(crate) updater: updater::UpdaterRuntime,
     pub(crate) pty_mgr: Arc<pty::PtyManager>,
 }
 
@@ -633,6 +637,7 @@ fn build_html_shell(
 
     let cu = &user_cfg.clickup;
     let init_json = serde_json::json!({
+        "appVersion": env!("CARGO_PKG_VERSION"),
         "currentFile": file_str,
         "initialToc": rendered.toc,
         "initialRelPath": if file_path.is_some() { rel_display.clone() } else { String::new() },
@@ -693,7 +698,7 @@ fn build_html_shell(
   <link rel="stylesheet" href="/vendor/overlayscrollbars/overlayscrollbars.min.css" />
   <link rel="stylesheet" href="/vendor/xterm/xterm.css" />
   <link rel="stylesheet" href="/vendor/katex/katex.min.css" />
-  <link rel="stylesheet" href="/assets/styles.css?v=2.16.0" />
+  <link rel="stylesheet" href="/assets/styles.css?v=2.17.0" />
 </head>
 <body class="{body_cls_str}">
   <div class="mdv-win-resize-ring" aria-hidden="true">
@@ -736,6 +741,7 @@ fn build_html_shell(
       <div id="mdv-settings-wrap" class="mdv-settings-wrap">
         <button type="button" id="mdv-settings-btn" class="mdv-tool-btn mdv-settings-trigger" aria-haspopup="true" aria-expanded="false" aria-label="Preferencias y ayuda" title="Preferencias y ayuda">
           <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="2.3"/><path d="M13.4 9.2a1.1 1.1 0 0 0 .22 1.21l.04.04a1.34 1.34 0 1 1-1.9 1.9l-.04-.04a1.1 1.1 0 0 0-1.21-.22 1.1 1.1 0 0 0-.67 1.01v.12a1.34 1.34 0 0 1-2.68 0v-.06a1.1 1.1 0 0 0-.72-1.01 1.1 1.1 0 0 0-1.21.22l-.04.04a1.34 1.34 0 1 1-1.9-1.9l.04-.04a1.1 1.1 0 0 0 .22-1.21 1.1 1.1 0 0 0-1.01-.67H2.5a1.34 1.34 0 0 1 0-2.68h.06a1.1 1.1 0 0 0 1.01-.72 1.1 1.1 0 0 0-.22-1.21l-.04-.04a1.34 1.34 0 1 1 1.9-1.9l.04.04a1.1 1.1 0 0 0 1.21.22h.05a1.1 1.1 0 0 0 .67-1.01V2.5a1.34 1.34 0 0 1 2.68 0v.06a1.1 1.1 0 0 0 .67 1.01 1.1 1.1 0 0 0 1.21-.22l.04-.04a1.34 1.34 0 1 1 1.9 1.9l-.04.04a1.1 1.1 0 0 0-.22 1.21v.05a1.1 1.1 0 0 0 1.01.67h.12a1.34 1.34 0 0 1 0 2.68h-.06a1.1 1.1 0 0 0-1.01.67Z"/></svg>
+          <span id="mdv-settings-update-dot" class="mdv-settings-update-dot" hidden></span>
         </button>
 
         <div id="mdv-settings-popover" class="mdv-settings-popover" hidden>
@@ -796,6 +802,11 @@ fn build_html_shell(
           </div>
 
           <div class="mdv-settings-divider"></div>
+
+          <button type="button" id="mdv-check-updates" class="mdv-settings-action-btn" title="Buscar actualizaciones en GitHub Releases">
+            <span id="mdv-check-updates-label">Buscar actualizaciones</span>
+            <span id="mdv-app-version-pill" class="mdv-kbd">v{app_ver}</span>
+          </button>
 
           <button type="button" id="mdv-open-help" class="mdv-settings-action-btn" title="Atajos de teclado (?)">
             <span>Atajos y ayuda</span>
@@ -1018,7 +1029,7 @@ fn build_html_shell(
   <script src="/vendor/highlight/highlight.min.js"></script>
   <script src="/vendor/katex/katex.min.js"></script>
   <script src="/vendor/mermaid/mermaid.min.js"></script>
-  <script src="/assets/app.js?v=2.16.0"></script>
+  <script src="/assets/app.js?v=2.17.0"></script>
 </body>
 </html>"#,
         theme = workspace::escape_html_attr(&state.default_theme),
@@ -1035,7 +1046,8 @@ fn build_html_shell(
         body_html = initial_body_html,
         toc_html = toc_html,
         init_json = init_json,
-        logo_svg = assets::LOGO_SVG_STR
+        logo_svg = assets::LOGO_SVG_STR,
+        app_ver = env!("CARGO_PKG_VERSION")
     )
 }
 
@@ -1193,9 +1205,11 @@ async fn api_set_workspace_home_handler(
         }
     }
 
-    let port = state.daemon_port.load(Ordering::Relaxed);
-    if port != 0 {
-        write_daemon_info(&canonical, port);
+    if state.record_daemon_flag {
+        let port = state.bound_port.load(Ordering::Relaxed);
+        if port != 0 {
+            write_daemon_info(&canonical, port);
+        }
     }
 
     let ws_str = canonical.to_string_lossy().to_string();
@@ -1274,6 +1288,7 @@ async fn api_health_handler(State(state): State<Arc<AppState>>) -> impl IntoResp
     Json(serde_json::json!({
         "ok": true,
         "pid": std::process::id(),
+        "version": env!("CARGO_PKG_VERSION"),
         "workspace": ws_dir.to_string_lossy(),
         "buildSig": current_build_signature(),
         "activePtys": state.pty_mgr.active_count(),
@@ -1840,7 +1855,7 @@ fn win_path_to_wsl(win_path: &str) -> Option<PathBuf> {
 }
 
 #[cfg(unix)]
-fn find_windows_native_mdv_exe() -> Option<PathBuf> {
+pub(crate) fn find_windows_native_mdv_exe() -> Option<PathBuf> {
     if let Ok(explicit) = std::env::var("MDV_WIN_EXE") {
         let p = PathBuf::from(explicit.trim());
         if p.is_file() {
@@ -2148,7 +2163,12 @@ fn run_self_update() {
 
 fn main() {
     #[cfg(windows)]
-    win_app::init_windows_process();
+    {
+        win_app::init_windows_process();
+        if let Ok(exe) = std::env::current_exe() {
+            let _ = fs::remove_file(exe.with_extension("exe.old"));
+        }
+    }
 
     let mut cli = Cli::parse();
 
@@ -2368,7 +2388,8 @@ fn main() {
             }
         }
 
-        let record_daemon = cli.stdin_file.is_none() && cli.port == 0;
+        let record_daemon = cli.stdin_file.is_none() && (cli.port == 0 || cli.server_child);
+        let is_fg_win = cfg!(windows) && cli.foreground && !cli.browser && !cli.no_open;
         let state = Arc::new(AppState {
             initial_file: RwLock::new(initial_file.clone()),
             split_file: resolved_split,
@@ -2378,7 +2399,9 @@ fn main() {
                 "vertical".to_string()
             },
             workspace_dir: RwLock::new(workspace_dir.clone()),
-            daemon_port: AtomicU16::new(0),
+            bound_port: AtomicU16::new(0),
+            record_daemon_flag: record_daemon,
+            is_foreground_win: is_fg_win,
             dir_mode: effective_dir_mode,
             default_theme: theme,
             keep_alive: cli.keep_alive,
@@ -2389,6 +2412,7 @@ fn main() {
             had_client: AtomicBool::new(false),
             clickup: clickup::ClickUpRuntime::default(),
             github: github::GitHubRuntime::default(),
+            updater: updater::UpdaterRuntime::default(),
             pty_mgr: Arc::new(pty::PtyManager::default()),
         });
 
@@ -2496,6 +2520,8 @@ fn main() {
             .route("/api/clickup/tasks", get(clickup::api_clickup_tasks_handler))
             .route("/api/clickup/task-lookup", get(clickup::api_clickup_task_lookup_handler))
             .route("/api/github/task-prs", post(github::api_github_task_prs_handler))
+            .route("/api/update/check", get(updater::api_update_check_handler))
+            .route("/api/update/install", post(updater::api_update_install_handler))
             .route("/local-file", get(local_file_handler))
             .route("/ws/pty", get(pty_ws_handler))
             .route(
@@ -2576,10 +2602,10 @@ fn main() {
             .await
             .expect("Failed to bind local port");
         let local_addr = listener.local_addr().unwrap();
+        state_for_port
+            .bound_port
+            .store(local_addr.port(), Ordering::Relaxed);
         if record_daemon {
-            state_for_port
-                .daemon_port
-                .store(local_addr.port(), Ordering::Relaxed);
             write_daemon_info(&workspace_dir, local_addr.port());
         }
         let url = format!("http://127.0.0.1:{}", local_addr.port());

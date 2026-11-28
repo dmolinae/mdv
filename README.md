@@ -36,7 +36,7 @@ cd ~/code/mdv
 ./install.sh --local
 ```
 
-Para actualizar a la última versión en Windows o WSL2 / Linux:
+Para actualizar a la última versión en Windows o WSL2 / Linux (también incluye **auto-actualizador integrado en 1 clic** dentro de la aplicación):
 
 ```bash
 mdv --update
