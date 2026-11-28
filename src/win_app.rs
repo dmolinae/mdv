@@ -10,7 +10,7 @@ use tao::{
     platform::windows::WindowBuilderExtWindows,
     window::{Icon, ResizeDirection, WindowBuilder},
 };
-use wry::{http::Request, NewWindowResponse, WebContext, WebViewBuilder};
+use wry::{http::Request, NewWindowResponse, WebContext, WebViewBuilder, WebViewBuilderExtWindows};
 
 static ICON_64_RGBA: &[u8] = include_bytes!("../assets/icon-64.rgba");
 
@@ -164,6 +164,7 @@ document.documentElement.setAttribute('data-win-maximized', '{}');"#,
     let webview = WebViewBuilder::new_with_web_context(&mut web_context)
         .with_url(&target_url)
         .with_background_color((15, 17, 26, 255))
+        .with_browser_accelerator_keys(false)
         .with_initialization_script(&init_script)
         .with_ipc_handler(ipc_handler)
         .with_accept_first_mouse(true)

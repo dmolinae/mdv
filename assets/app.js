@@ -726,7 +726,7 @@
             ${hideBtn}
             <button type="button" class="mdv-pane-btn" data-pane-action="term-right" data-target-pane="${id}" title="Split Terminal a la derecha (Ctrl+Alt+R)">+|</button>
             <button type="button" class="mdv-pane-btn" data-pane-action="term-down" data-target-pane="${id}" title="Split Terminal abajo (Ctrl+Alt+D)">+—</button>
-            <button type="button" class="mdv-pane-btn" data-pane-close="${id}" data-close-kind="terminal" title="Cerrar esta terminal (Ctrl+Alt+W)">✕</button>
+            <button type="button" class="mdv-pane-btn" data-pane-close="${id}" data-close-kind="terminal" title="Cerrar esta terminal (Ctrl+Shift+W / Ctrl+Alt+W)">✕</button>
           </div>
         </div>`;
     }
@@ -1703,9 +1703,14 @@
           ) {
             return false;
           }
-          if (ev.ctrlKey && ev.shiftKey && ev.code === 'KeyC' && term.hasSelection()) {
-            navigator.clipboard.writeText(term.getSelection()).catch(() => {});
-            return false;
+          if (ev.ctrlKey && ev.shiftKey && !ev.altKey && !ev.metaKey) {
+            if (ev.code === 'KeyW' || ev.key?.toLowerCase() === 'w') {
+              return false;
+            }
+            if (ev.code === 'KeyC' && term.hasSelection()) {
+              navigator.clipboard.writeText(term.getSelection()).catch(() => {});
+              return false;
+            }
           }
           return true;
         });
@@ -3135,7 +3140,7 @@
             <div class="mdv-help-row"><span>Mostrar / ocultar panel lateral</span><span><kbd class="mdv-kbd">Alt+B</kbd></span></div>
             <div class="mdv-help-row"><span>Split Right / Down en zona actual</span><span><kbd class="mdv-kbd">Ctrl+Alt+R</kbd> / <kbd class="mdv-kbd">Ctrl+Alt+D</kbd></span></div>
             <div class="mdv-help-row"><span>Forzar nuevo Split Terminal</span><span><kbd class="mdv-kbd">Alt+Shift+R</kbd> / <kbd class="mdv-kbd">Alt+Shift+D</kbd></span></div>
-            <div class="mdv-help-row"><span>Cerrar terminal en foco</span><span><kbd class="mdv-kbd">Ctrl+Alt+W</kbd></span></div>
+            <div class="mdv-help-row"><span>Cerrar terminal en foco</span><span><kbd class="mdv-kbd">Ctrl+Shift+W</kbd> / <kbd class="mdv-kbd">Ctrl+Alt+W</kbd></span></div>
           </div>
           <div class="mdv-help-section">
             <h4>Tab Markdown (Archivos y Lectura)</h4>
@@ -3352,6 +3357,19 @@
       const inInput = !inXterm && Boolean(e.target?.matches?.('input, textarea, select'));
       const isAltGraph = Boolean(e.getModifierState && e.getModifierState('AltGraph'));
       const isCtrlAlt = (e.ctrlKey && e.altKey && !e.metaKey) || (!inInput && isAltGraph && !e.metaKey);
+
+      // Close focused terminal with Ctrl+Shift+W
+      if (e.ctrlKey && e.shiftKey && !e.altKey && !e.metaKey && (e.code === 'KeyW' || e.key?.toLowerCase() === 'w')) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (focusZone === 'terminal' && focusedTermPaneId) {
+          const curTerm = termPanes.get(focusedTermPaneId);
+          if (curTerm && !curTerm.isHidden) {
+            closeTerminalPane(curTerm.id);
+          }
+        }
+        return;
+      }
 
       // 1. Context-aware Ctrl+Alt+R / Ctrl+Alt+D Splits:
       //    - In Terminal Zone => splits Terminal Zone (Right / Down)!
