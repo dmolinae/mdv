@@ -655,7 +655,7 @@ fn build_html_shell(
   <link rel="stylesheet" href="/vendor/overlayscrollbars/overlayscrollbars.min.css" />
   <link rel="stylesheet" href="/vendor/xterm/xterm.css" />
   <link rel="stylesheet" href="/vendor/katex/katex.min.css" />
-  <link rel="stylesheet" href="/assets/styles.css?v=2.15.0" />
+  <link rel="stylesheet" href="/assets/styles.css?v=2.15.1" />
 </head>
 <body class="{body_cls_str}">
   <div class="mdv-win-resize-ring" aria-hidden="true">
@@ -695,18 +695,6 @@ fn build_html_shell(
     </div>
 
     <div class="mdv-topbar-right">
-      <div class="mdv-btn-pill-group" role="group" aria-label="Panel lateral">
-        <button type="button" class="mdv-tool-btn is-active" data-top-tab="markdown" title="Abrir tab Markdown (Alt+1)">
-          <span>Markdown</span>
-        </button>
-        <button type="button" class="mdv-tool-btn" data-top-tab="clickup" title="Abrir tab Clickup (Alt+2)">
-          <span>Clickup</span>
-        </button>
-        <button type="button" id="mdv-toggle-side-zone" class="mdv-tool-btn is-active" title="Mostrar/ocultar panel lateral (Alt+B)">
-          <svg viewBox="0 0 16 16" width="13" height="13" fill="currentColor"><path d="M1.75 1h12.5c.966 0 1.75.784 1.75 1.75v10.5A1.75 1.75 0 0 1 14.25 15H1.75A1.75 1.75 0 0 1 0 13.25V2.75C0 1.784.784 1 1.75 1ZM1.5 2.75v10.5c0 .138.112.25.25.25H9.5v-11H1.75a.25.25 0 0 0-.25.25Zm9.5 10.75h3.25a.25.25 0 0 0 .25-.25V2.75a.25.25 0 0 0-.25-.25H11Z"/></svg>
-        </button>
-      </div>
-
       <select id="mdv-font-pt-select" class="mdv-theme-select" aria-label="Tamaño de letra (pt)" title="Tamaño de letra en pt (- / + / 0)">
         <option value="6">6 pt</option>
         <option value="6.5">6.5 pt</option>
@@ -754,6 +742,18 @@ fn build_html_shell(
         <option value="light">Claro (Paper)</option>
       </select>
       <button type="button" id="mdv-open-help" class="mdv-tool-btn" title="Atajos de teclado (?)">?</button>
+
+      <div class="mdv-btn-pill-group" role="group" aria-label="Panel lateral">
+        <button type="button" class="mdv-tool-btn is-active" data-top-tab="markdown" title="Abrir tab Markdown (Alt+1)">
+          <span>Markdown</span>
+        </button>
+        <button type="button" class="mdv-tool-btn" data-top-tab="clickup" title="Abrir tab Clickup (Alt+2)">
+          <span>Clickup</span>
+        </button>
+        <button type="button" id="mdv-toggle-side-zone" class="mdv-tool-btn is-active" title="Mostrar/ocultar panel lateral (Alt+B)">
+          <svg viewBox="0 0 16 16" width="13" height="13" fill="currentColor"><path d="M1.75 1h12.5c.966 0 1.75.784 1.75 1.75v10.5A1.75 1.75 0 0 1 14.25 15H1.75A1.75 1.75 0 0 1 0 13.25V2.75C0 1.784.784 1 1.75 1ZM1.5 2.75v10.5c0 .138.112.25.25.25H9.5v-11H1.75a.25.25 0 0 0-.25.25Zm9.5 10.75h3.25a.25.25 0 0 0 .25-.25V2.75a.25.25 0 0 0-.25-.25H11Z"/></svg>
+        </button>
+      </div>
 
       <div id="mdv-win-controls" class="mdv-win-controls" aria-label="Controles de ventana">
         <button type="button" id="mdv-win-min" class="mdv-win-btn" title="Minimizar" aria-label="Minimizar">

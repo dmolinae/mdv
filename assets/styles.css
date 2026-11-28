@@ -1906,6 +1906,7 @@ html, body {
   border: 1px solid var(--border-subtle);
   background: var(--bg-elevated);
   overflow: hidden;
+  flex-shrink: 0;
 }
 
 .mdv-btn-pill-group .mdv-tool-btn {
