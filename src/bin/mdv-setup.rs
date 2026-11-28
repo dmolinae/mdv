@@ -7,14 +7,17 @@ fn main() {
 
 #[cfg(windows)]
 mod win_setup {
+    use base64::{engine::general_purpose::STANDARD as BASE64_STD, Engine as _};
     use std::env;
     use std::fs;
     use std::os::windows::ffi::OsStrExt;
     use std::os::windows::process::CommandExt;
     use std::path::{Path, PathBuf};
     use std::process::{Command, Stdio};
+    use std::time::Duration;
 
     const CREATE_NO_WINDOW: u32 = 0x08000000;
+    const ASFW_ANY: u32 = 0xFFFFFFFF;
     const MB_YESNO: u32 = 0x00000004;
     const MB_OK: u32 = 0x00000000;
     const MB_ICONINFORMATION: u32 = 0x00000040;
@@ -26,10 +29,12 @@ mod win_setup {
     const WM_SETTINGCHANGE: u32 = 0x001A;
     const SMTO_ABORTIFHUNG: u32 = 0x0002;
 
+    const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
     static EMBEDDED_MDV_EXE: &[u8] = include_bytes!(env!("MDV_EXE_PATH"));
 
     #[link(name = "user32")]
     extern "system" {
+        fn AllowSetForegroundWindow(dwProcessId: u32) -> i32;
         fn MessageBoxW(hwnd: isize, text: *const u16, caption: *const u16, utype: u32) -> i32;
         fn SendMessageTimeoutW(
             hwnd: isize,
@@ -68,9 +73,33 @@ mod win_setup {
         }
     }
 
+    fn stop_running_mdv() {
+        let _ = Command::new("taskkill.exe")
+            .args(["/F", "/IM", "mdv.exe"])
+            .creation_flags(CREATE_NO_WINDOW)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+        std::thread::sleep(Duration::from_millis(180));
+    }
+
     fn run_ps(script: &str) -> Result<(), String> {
+        let mut utf16_le = Vec::with_capacity(script.len() * 2);
+        for unit in script.encode_utf16() {
+            utf16_le.extend_from_slice(&unit.to_le_bytes());
+        }
+        let encoded = BASE64_STD.encode(&utf16_le);
+
         let out = Command::new("powershell.exe")
-            .args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script])
+            .args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-EncodedCommand",
+                &encoded,
+            ])
             .creation_flags(CREATE_NO_WINDOW)
             .stdin(Stdio::null())
             .output()
@@ -78,7 +107,9 @@ mod win_setup {
         if out.status.success() {
             Ok(())
         } else {
-            Err(String::from_utf8_lossy(&out.stderr).trim().to_string())
+            let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
+            let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            Err(if !stderr.is_empty() { stderr } else { stdout })
         }
     }
 
@@ -87,35 +118,78 @@ mod win_setup {
         PathBuf::from(local).join("Programs").join("mdv")
     }
 
+    fn user_home_dir() -> PathBuf {
+        dirs::home_dir()
+            .or_else(|| env::var("USERPROFILE").ok().map(PathBuf::from))
+            .filter(|p| p.is_dir())
+            .unwrap_or_else(|| PathBuf::from(r"C:\"))
+    }
+
+    fn launch_installed_app(exe_path: &Path) {
+        if !exe_path.is_file() {
+            return;
+        }
+        let home = user_home_dir();
+        unsafe {
+            let _ = AllowSetForegroundWindow(ASFW_ANY);
+        }
+        let mut cmd = Command::new(exe_path);
+        cmd.arg(&home)
+            .current_dir(&home)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        if let Some(app_dir) = exe_path.parent() {
+            let cur_path = env::var("PATH").unwrap_or_default();
+            cmd.env("PATH", format!("{};{}", app_dir.display(), cur_path));
+        }
+        if let Ok(child) = cmd.spawn() {
+            unsafe {
+                let _ = AllowSetForegroundWindow(child.id());
+            }
+        }
+    }
+
     pub fn run() {
         let args: Vec<String> = env::args().skip(1).collect();
         let silent = args.iter().any(|a| {
             let u = a.to_ascii_uppercase();
             u == "/S" || u == "/VERYSILENT" || u == "/SILENT" || u == "--SILENT"
         });
-        let uninstall = args.iter().any(|a| a.eq_ignore_ascii_case("--uninstall") || a.eq_ignore_ascii_case("/uninstall"));
+        let launch_after = args.iter().any(|a| {
+            a.eq_ignore_ascii_case("--launch") || a.eq_ignore_ascii_case("/launch")
+        });
+        let uninstall = args.iter().any(|a| {
+            a.eq_ignore_ascii_case("--uninstall") || a.eq_ignore_ascii_case("/uninstall")
+        });
 
         if uninstall {
             run_uninstall(silent);
         } else {
-            run_install(silent);
+            run_install(silent, launch_after);
         }
     }
 
-    fn run_install(silent: bool) {
+    fn run_install(silent: bool, launch_after: bool) {
         let dir = install_dir();
         if !silent {
             let prompt = format!(
-                "¿Deseas instalar mdv v2.0.0 en Windows?\n\n\
-                 Carpeta de destino:\n  {}\n\n\
+                "¿Deseas instalar mdv v{ver} en Windows?\n\n\
+                 Carpeta de destino:\n  {dir}\n\n\
                  Se configurará automáticamente:\n\
-                 • Ejecutable nativo mdv.exe (Rust)\n\
+                 • Ejecutable nativo mdv.exe (WebView2 + Rust)\n\
                  • Comando 'mdv' añadido a tu PATH de usuario\n\
                  • 'Abrir en mdv' en el menú contextual de carpetas\n\
                  • Acceso directo en el Menú Inicio y Desinstalador",
-                dir.display()
+                ver = APP_VERSION,
+                dir = dir.display()
             );
-            if msg_box("Instalador de mdv v2.0.0", &prompt, MB_YESNO | MB_ICONQUESTION) != IDYES {
+            if msg_box(
+                &format!("Instalador de mdv v{}", APP_VERSION),
+                &prompt,
+                MB_YESNO | MB_ICONQUESTION,
+            ) != IDYES
+            {
                 return;
             }
         }
@@ -133,25 +207,51 @@ mod win_setup {
 
         broadcast_env_change();
 
+        let exe_path = dir.join("mdv.exe");
         if !silent {
-            msg_box(
-                "Instalación completada — mdv v2.0.0",
-                "✓ mdv v2.0.0 se instaló correctamente.\n\n\
-                 • Ejecuta 'mdv' en cualquier carpeta desde Windows Terminal o PowerShell.\n\
-                 • O haz clic derecho sobre cualquier carpeta y elige 'Abrir en mdv'.",
-                MB_OK | MB_ICONINFORMATION,
+            let done_msg = format!(
+                "✓ mdv v{ver} se instaló correctamente.\n\n\
+                 • Acceso directo creado en el Menú Inicio\n\
+                 • 'Abrir en mdv' añadido al clic derecho sobre carpetas\n\
+                 • Comando 'mdv' añadido a tu PATH de Windows\n\n\
+                 ¿Deseas abrir mdv ahora?",
+                ver = APP_VERSION
             );
+            if msg_box(
+                &format!("Instalación completada — mdv v{}", APP_VERSION),
+                &done_msg,
+                MB_YESNO | MB_ICONINFORMATION,
+            ) == IDYES
+            {
+                launch_installed_app(&exe_path);
+            }
+        } else if launch_after {
+            launch_installed_app(&exe_path);
         }
     }
 
     fn perform_install(dir: &Path) -> Result<(), String> {
+        if EMBEDDED_MDV_EXE.len() < 1024 || !EMBEDDED_MDV_EXE.starts_with(b"MZ") {
+            return Err(
+                "Este instalador se compiló sin embeber un ejecutable mdv.exe válido (MDV_EXE_PATH)."
+                    .to_string(),
+            );
+        }
+
         fs::create_dir_all(dir).map_err(|e| format!("Crear directorio: {}", e))?;
         let exe_path = dir.join("mdv.exe");
         let uninst_path = dir.join("mdv-uninstall.exe");
 
+        // Ensure any running background daemon or window of mdv.exe is closed before writing
+        stop_running_mdv();
+
         // Write mdv.exe
-        fs::write(&exe_path, EMBEDDED_MDV_EXE)
-            .map_err(|e| format!("Escribir mdv.exe (cierra ventanas activas de mdv e intenta de nuevo): {}", e))?;
+        fs::write(&exe_path, EMBEDDED_MDV_EXE).map_err(|e| {
+            format!(
+                "Escribir mdv.exe (cierra ventanas activas de mdv e intenta de nuevo): {}",
+                e
+            )
+        })?;
 
         // Copy current setup binary as uninstaller
         if let Ok(self_exe) = env::current_exe() {
@@ -170,6 +270,7 @@ $ErrorActionPreference = 'Stop'
 $AppDir = '{dir_esc}'
 $ExePath = '{exe_esc}'
 $UninstPath = '{uninst_esc}'
+$HomeDir = if ($env:USERPROFILE -and (Test-Path $env:USERPROFILE)) {{ $env:USERPROFILE }} else {{ 'C:\' }}
 
 # 1. Add to HKCU Environment\Path cleanly preserving unexpanded REG_EXPAND_SZ
 $EnvKey = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Environment', $true)
@@ -185,24 +286,28 @@ $EnvKey.Close()
 foreach ($Base in @('HKCU:\Software\Classes\Directory\shell\mdv', 'HKCU:\Software\Classes\Directory\Background\shell\mdv')) {{
     New-Item -Path "$Base\command" -Force | Out-Null
     Set-ItemProperty -Path $Base -Name '(Default)' -Value 'Abrir en mdv'
-    Set-ItemProperty -Path $Base -Name 'Icon' -Value "`"$ExePath`""
-    Set-ItemProperty -Path "$Base\command" -Name '(Default)' -Value "`"$ExePath`" `"%V`""
+    Set-ItemProperty -Path $Base -Name 'Icon' -Value "`"$ExePath`",0"
+    Set-ItemProperty -Path "$Base\command" -Name '(Default)' -Value "`"$ExePath`" -- `"%V`""
 }}
 
 # 3. .md / .markdown Open With registration
+New-Item -Path 'HKCU:\Software\Classes\mdv.MarkdownFile\DefaultIcon' -Force | Out-Null
 New-Item -Path 'HKCU:\Software\Classes\mdv.MarkdownFile\shell\open\command' -Force | Out-Null
 Set-ItemProperty -Path 'HKCU:\Software\Classes\mdv.MarkdownFile' -Name '(Default)' -Value 'Markdown Document (mdv)'
-Set-ItemProperty -Path 'HKCU:\Software\Classes\mdv.MarkdownFile\shell\open\command' -Name '(Default)' -Value "`"$ExePath`" `"%1`""
+Set-ItemProperty -Path 'HKCU:\Software\Classes\mdv.MarkdownFile\DefaultIcon' -Name '(Default)' -Value "`"$ExePath`",0"
+Set-ItemProperty -Path 'HKCU:\Software\Classes\mdv.MarkdownFile\shell\open\command' -Name '(Default)' -Value "`"$ExePath`" -- `"%1`""
 foreach ($Ext in @('.md', '.markdown')) {{
     New-Item -Path "HKCU:\Software\Classes\$Ext\OpenWithProgids" -Force | Out-Null
     New-ItemProperty -Path "HKCU:\Software\Classes\$Ext\OpenWithProgids" -Name 'mdv.MarkdownFile' -Value '' -PropertyType String -Force | Out-Null
 }}
 
-# 4. Start Menu Shortcut
+# 4. Start Menu Shortcut (with WorkingDirectory = $HomeDir so Start Menu opens user home, not System32)
 $StartMenu = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\mdv.lnk'
 $WshShell = New-Object -ComObject WScript.Shell
 $Shortcut = $WshShell.CreateShortcut($StartMenu)
 $Shortcut.TargetPath = $ExePath
+$Shortcut.WorkingDirectory = $HomeDir
+$Shortcut.IconLocation = "$ExePath,0"
 $Shortcut.Description = 'mdv — Modern Markdown & WSL Terminal Workspace'
 $Shortcut.Save()
 
@@ -210,15 +315,19 @@ $Shortcut.Save()
 $UninstReg = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\mdv'
 New-Item -Path $UninstReg -Force | Out-Null
 Set-ItemProperty -Path $UninstReg -Name 'DisplayName' -Value 'mdv (Markdown & WSL Viewer)'
-Set-ItemProperty -Path $UninstReg -Name 'DisplayVersion' -Value '2.0.0'
+Set-ItemProperty -Path $UninstReg -Name 'DisplayVersion' -Value '{ver}'
 Set-ItemProperty -Path $UninstReg -Name 'Publisher' -Value 'Daniel Molina'
-Set-ItemProperty -Path $UninstReg -Name 'DisplayIcon' -Value $ExePath
+Set-ItemProperty -Path $UninstReg -Name 'DisplayIcon' -Value "$ExePath,0"
 Set-ItemProperty -Path $UninstReg -Name 'InstallLocation' -Value $AppDir
 Set-ItemProperty -Path $UninstReg -Name 'UninstallString' -Value "`"$UninstPath`" --uninstall"
 Set-ItemProperty -Path $UninstReg -Name 'QuietUninstallString' -Value "`"$UninstPath`" --uninstall --silent"
 Set-ItemProperty -Path $UninstReg -Name 'NoModify' -Value 1 -Type DWord
 Set-ItemProperty -Path $UninstReg -Name 'NoRepair' -Value 1 -Type DWord
-"#
+"#,
+            dir_esc = dir_esc,
+            exe_esc = exe_esc,
+            uninst_esc = uninst_esc,
+            ver = APP_VERSION,
         );
 
         run_ps(&ps_script)
@@ -236,6 +345,8 @@ Set-ItemProperty -Path $UninstReg -Name 'NoRepair' -Value 1 -Type DWord
                 return;
             }
         }
+
+        stop_running_mdv();
 
         let dir_esc = dir.to_string_lossy().replace('\'', "''");
         let ps_script = format!(

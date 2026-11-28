@@ -27,6 +27,7 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 ChangesEnvironment=yes
 ChangesAssociations=yes
+CloseApplications=force
 
 [Languages]
 Name: "spanish"; MessagesFile: "compiler:Languages\Spanish.isl"
@@ -43,25 +44,28 @@ Source: "..\..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
+Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{%USERPROFILE|C:\}"
 Name: "{group}\Desinstalar {#MyAppName}"; Filename: "{uninstallexe}"
+
+[Run]
+Filename: "{app}\{#MyAppExeName}"; Parameters: "-- ""{%USERPROFILE|C:\}"""; WorkingDir: "{%USERPROFILE|C:\}"; Description: "Abrir {#MyAppName}"; Flags: nowait postinstall skipifsilent
 
 [Registry]
 ; Folder context menu ("Abrir en mdv")
 Root: HKA; Subkey: "Software\Classes\Directory\shell\mdv"; ValueType: string; ValueName: ""; ValueData: "Abrir en mdv"; Flags: uninsdeletekey; Tasks: contextmenu
-Root: HKA; Subkey: "Software\Classes\Directory\shell\mdv"; ValueType: string; ValueName: "Icon"; ValueData: """{app}\{#MyAppExeName}"""; Tasks: contextmenu
-Root: HKA; Subkey: "Software\Classes\Directory\shell\mdv\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExeName}"" ""%V"""; Tasks: contextmenu
+Root: HKA; Subkey: "Software\Classes\Directory\shell\mdv"; ValueType: string; ValueName: "Icon"; ValueData: """{app}\{#MyAppExeName}"",0"; Tasks: contextmenu
+Root: HKA; Subkey: "Software\Classes\Directory\shell\mdv\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExeName}"" -- ""%V"""; Tasks: contextmenu
 
 Root: HKA; Subkey: "Software\Classes\Directory\Background\shell\mdv"; ValueType: string; ValueName: ""; ValueData: "Abrir carpeta en mdv"; Flags: uninsdeletekey; Tasks: contextmenu
-Root: HKA; Subkey: "Software\Classes\Directory\Background\shell\mdv"; ValueType: string; ValueName: "Icon"; ValueData: """{app}\{#MyAppExeName}"""; Tasks: contextmenu
-Root: HKA; Subkey: "Software\Classes\Directory\Background\shell\mdv\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExeName}"" ""%V"""; Tasks: contextmenu
+Root: HKA; Subkey: "Software\Classes\Directory\Background\shell\mdv"; ValueType: string; ValueName: "Icon"; ValueData: """{app}\{#MyAppExeName}"",0"; Tasks: contextmenu
+Root: HKA; Subkey: "Software\Classes\Directory\Background\shell\mdv\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExeName}"" -- ""%V"""; Tasks: contextmenu
 
 ; Optional .md / .markdown file association
 Root: HKA; Subkey: "Software\Classes\.md\OpenWithProgids"; ValueType: string; ValueName: "mdv.MarkdownFile"; ValueData: ""; Flags: uninsdeletevalue; Tasks: assocmd
 Root: HKA; Subkey: "Software\Classes\.markdown\OpenWithProgids"; ValueType: string; ValueName: "mdv.MarkdownFile"; ValueData: ""; Flags: uninsdeletevalue; Tasks: assocmd
 Root: HKA; Subkey: "Software\Classes\mdv.MarkdownFile"; ValueType: string; ValueName: ""; ValueData: "Documento Markdown (mdv)"; Flags: uninsdeletekey; Tasks: assocmd
 Root: HKA; Subkey: "Software\Classes\mdv.MarkdownFile\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExeName}"",0"; Tasks: assocmd
-Root: HKA; Subkey: "Software\Classes\mdv.MarkdownFile\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExeName}"" ""%1"""; Tasks: assocmd
+Root: HKA; Subkey: "Software\Classes\mdv.MarkdownFile\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExeName}"" -- ""%1"""; Tasks: assocmd
 
 [Code]
 procedure CurStepChanged(CurStep: TSetupStep);

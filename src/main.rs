@@ -30,7 +30,7 @@ use std::{
     collections::HashMap,
     convert::Infallible,
     fs,
-    io::{IsTerminal, Read},
+    io::Read,
     path::{Path, PathBuf},
     process::{Command, Stdio},
     sync::{
@@ -1722,17 +1722,17 @@ fn append_native_win_params(url: &str, maximized: bool) -> String {
 pub(crate) fn launch_window(url: &str, app_mode: bool, maximized: bool) {
     #[cfg(windows)]
     if app_mode {
+        win_app::allow_foreground_activation(None);
         if let Ok(self_exe) = std::env::current_exe() {
-            use std::os::windows::process::CommandExt;
             let native_url = append_native_win_params(url, maximized);
             let mut cmd = Command::new(self_exe);
             cmd.arg("--app-url").arg(&native_url);
             if !maximized {
                 cmd.arg("--windowed");
             }
-            cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
             cmd.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
-            if cmd.spawn().is_ok() {
+            if let Ok(child) = cmd.spawn() {
+                win_app::allow_foreground_activation(Some(child.id()));
                 return;
             }
         }
@@ -1757,6 +1757,10 @@ pub(crate) fn launch_window(url: &str, app_mode: bool, maximized: bool) {
         }
     }
 
+    launch_browser_window(url, app_mode, maximized);
+}
+
+pub(crate) fn launch_browser_window(url: &str, app_mode: bool, maximized: bool) {
     if let Some(browser) = find_chromium_browser() {
         let is_win_browser = cfg!(windows)
             || browser
@@ -1795,8 +1799,10 @@ pub(crate) fn launch_window(url: &str, app_mode: bool, maximized: bool) {
 
     #[cfg(windows)]
     {
+        use std::os::windows::process::CommandExt;
         let _ = Command::new("cmd")
             .args(["/c", "start", "", url])
+            .creation_flags(0x08000000)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -1827,11 +1833,57 @@ pub(crate) fn launch_window(url: &str, app_mode: bool, maximized: bool) {
     }
 }
 
+#[cfg(windows)]
+fn is_windows_system_or_install_dir(dir: &Path) -> bool {
+    let dir_low = dir.to_string_lossy().trim_end_matches('\\').to_ascii_lowercase();
+    if let Ok(windir) = std::env::var("WINDIR") {
+        let win_low = windir.trim_end_matches('\\').to_ascii_lowercase();
+        if !win_low.is_empty() && (dir_low == win_low || dir_low.starts_with(&format!("{}\\", win_low))) {
+            return true;
+        }
+    }
+    if let Ok(self_exe) = std::env::current_exe() {
+        if let Some(exe_dir) = self_exe.parent() {
+            let exe_low = exe_dir.to_string_lossy().trim_end_matches('\\').to_ascii_lowercase();
+            if !exe_low.is_empty() && dir_low == exe_low {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+fn sanitize_cli_path_arg(raw_arg: &str) -> String {
+    #[cfg(windows)]
+    {
+        // Explorer context menu `"%V"` on a drive root `C:\` turns `\"` into a trailing `"` (`C:"`)
+        let trimmed = raw_arg.trim().trim_matches('"');
+        let bytes = trimmed.as_bytes();
+        if bytes.len() == 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' {
+            return format!("{}\\", trimmed);
+        }
+        trimmed.to_string()
+    }
+    #[cfg(not(windows))]
+    {
+        raw_arg.to_string()
+    }
+}
+
 fn resolve_initial_target(target_arg: Option<&str>, explicit_workspace: Option<&str>) -> (Option<PathBuf>, PathBuf, bool) {
-    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let mut cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    #[cfg(windows)]
+    if target_arg.is_none() && explicit_workspace.is_none() && is_windows_system_or_install_dir(&cwd) {
+        if let Some(home) = dirs::home_dir().filter(|p| p.is_dir()) {
+            let _ = std::env::set_current_dir(&home);
+            cwd = home;
+        }
+    }
+
     let raw = match target_arg {
         Some(t) => {
-            let p = PathBuf::from(t);
+            let cleaned = sanitize_cli_path_arg(t);
+            let p = PathBuf::from(&cleaned);
             if p.is_absolute() {
                 p
             } else {
@@ -1842,7 +1894,10 @@ fn resolve_initial_target(target_arg: Option<&str>, explicit_workspace: Option<&
     };
 
     if !raw.exists() {
-        eprintln!("Error: no existe '{}'", raw.display());
+        let msg = format!("Error: no existe '{}'", raw.display());
+        eprintln!("{}", msg);
+        #[cfg(windows)]
+        win_app::show_error_if_no_console(&msg);
         std::process::exit(1);
     }
 
@@ -1939,7 +1994,18 @@ fn main() {
     }
 
     // Read piped stdin into temporary file if invoked as `cat foo.md | mdv`
-    if cli.target.is_none() && cli.stdin_file.is_none() && !std::io::stdin().is_terminal() {
+    let stdin_piped = {
+        #[cfg(windows)]
+        {
+            !cli.server_child && win_app::has_piped_stdin()
+        }
+        #[cfg(not(windows))]
+        {
+            use std::io::IsTerminal;
+            !cli.server_child && !std::io::stdin().is_terminal()
+        }
+    };
+    if cli.target.is_none() && cli.stdin_file.is_none() && stdin_piped {
         let mut buf = String::new();
         if std::io::stdin().read_to_string(&mut buf).is_ok() && !buf.is_empty() {
             let tmp = std::env::temp_dir().join(format!("mdv-stdin-{}.md", std::process::id()));
@@ -2079,9 +2145,22 @@ fn main() {
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;
+            win_app::allow_foreground_activation(None);
             cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW on Windows!
         }
-        let _ = cmd.spawn();
+        match cmd.spawn() {
+            Ok(_child) => {
+                #[cfg(windows)]
+                win_app::allow_foreground_activation(Some(_child.id()));
+            }
+            Err(e) => {
+                let msg = format!("Error al iniciar el proceso en segundo plano de mdv: {}", e);
+                eprintln!("{}", msg);
+                #[cfg(windows)]
+                win_app::show_error_if_no_console(&msg);
+                std::process::exit(1);
+            }
+        }
         println!("Abriendo {} en ventana mdv...", label);
         return;
     }

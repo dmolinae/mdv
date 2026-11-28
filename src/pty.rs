@@ -750,6 +750,60 @@ fn apply_task_env(cmd: &mut CommandBuilder, task_env: &TaskPtyEnv) {
     let _ = wsl_keys;
 }
 
+#[cfg(windows)]
+fn has_installed_wsl_distro() -> bool {
+    use std::os::windows::ffi::OsStrExt;
+    const HKEY_CURRENT_USER: isize = (0x8000_0001u32 as i32) as isize;
+    const KEY_READ: u32 = 0x20019;
+
+    #[link(name = "advapi32")]
+    extern "system" {
+        fn RegOpenKeyExW(
+            hkey: isize,
+            lp_sub_key: *const u16,
+            ul_options: u32,
+            sam_desired: u32,
+            phk_result: *mut isize,
+        ) -> i32;
+        fn RegQueryValueExW(
+            hkey: isize,
+            lp_value_name: *const u16,
+            lp_reserved: *const u32,
+            lp_type: *mut u32,
+            lp_data: *mut u8,
+            lpcb_data: *mut u32,
+        ) -> i32;
+        fn RegCloseKey(hkey: isize) -> i32;
+    }
+
+    let subkey: Vec<u16> = std::ffi::OsStr::new(r"Software\Microsoft\Windows\CurrentVersion\Lxss")
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    let val_name: Vec<u16> = std::ffi::OsStr::new("DefaultDistribution")
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+
+    unsafe {
+        let mut hkey: isize = 0;
+        if RegOpenKeyExW(HKEY_CURRENT_USER, subkey.as_ptr(), 0, KEY_READ, &mut hkey) != 0 {
+            return false;
+        }
+        let mut data_len: u32 = 0;
+        let status = RegQueryValueExW(
+            hkey,
+            val_name.as_ptr(),
+            std::ptr::null(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            &mut data_len,
+        );
+        let _ = RegCloseKey(hkey);
+        status == 0 && data_len > 2
+    }
+}
+
 fn build_shell_command(cwd: &Path, task_env: &TaskPtyEnv) -> CommandBuilder {
     #[cfg(unix)]
     {
@@ -771,7 +825,7 @@ fn build_shell_command(cwd: &Path, task_env: &TaskPtyEnv) -> CommandBuilder {
     #[cfg(windows)]
     {
         let wsl_exe = Path::new(r"C:\Windows\System32\wsl.exe");
-        if wsl_exe.exists() {
+        if wsl_exe.exists() && has_installed_wsl_distro() {
             let mut cmd = CommandBuilder::new(wsl_exe);
             cmd.arg("--cd");
             cmd.arg(cwd.as_os_str());

@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   build-windows:
-    name: Windows Native WebView2 (x86_64)
+    name: Windows Native WebView2 & Installer (x86_64)
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -19,25 +19,22 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Build mdv.exe (native borderless WebView2 host)
         run: cargo build --release --bin mdv
+      - name: Build mdv-setup-x64.exe (Windows GUI installer)
+        shell: pwsh
+        run: |
+          $env:MDV_EXE_PATH = (Resolve-Path target/release/mdv.exe).Path
+          cargo build --release --bin mdv-setup
+          Copy-Item target/release/mdv-setup.exe mdv-setup-x64.exe -Force
       - name: Package mdv-windows-x86_64.zip
         shell: pwsh
         run: |
-          Compress-Archive -Path target/release/mdv.exe -DestinationPath mdv-windows-x86_64.zip -Force
+          Compress-Archive -Path target/release/mdv.exe, README.md, LICENSE -DestinationPath mdv-windows-x86_64.zip -Force
       - uses: actions/upload-artifact@v4
         with:
-          name: mdv-windows-x86_64
-          path: mdv-windows-x86_64.zip
-      - name: Update latest GitHub Release asset
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: pwsh
-        run: |
-          $tag = if ("${{ github.ref_type }}" -eq "tag") { "${{ github.ref_name }}" } else { "v2.0.0" }
-          gh release view $tag *> $null
-          if ($LASTEXITCODE -ne 0) {
-            gh release create $tag --title "mdv $tag" --notes "Automated native Windows (WebView2) & Linux/WSL2 release binaries."
-          }
-          gh release upload $tag mdv-windows-x86_64.zip --clobber
+          name: windows-release-assets
+          path: |
+            mdv-setup-x64.exe
+            mdv-windows-x86_64.zip
 
   build-linux:
     name: Linux / WSL2 Native (x86_64)
@@ -52,13 +49,26 @@ jobs:
         run: tar -czf mdv-linux-x86_64.tar.gz -C target/release mdv
       - uses: actions/upload-artifact@v4
         with:
-          name: mdv-linux-x86_64
+          name: linux-release-assets
           path: mdv-linux-x86_64.tar.gz
-      - name: Update latest GitHub Release asset
+
+  publish-release:
+    name: Update GitHub Release Assets
+    needs: [build-windows, build-linux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+      - name: Generate SHA256 checksums & upload to GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          cd release-assets
+          sha256sum mdv-setup-x64.exe mdv-windows-x86_64.zip mdv-linux-x86_64.tar.gz > checksums.txt
+          ls -lh
           TAG="${GITHUB_REF_NAME}"
           if [ "${GITHUB_REF_TYPE}" != "tag" ]; then TAG="v2.0.0"; fi
-          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "mdv $TAG" --notes "Automated native Windows (WebView2) & Linux/WSL2 release binaries."
-          gh release upload "$TAG" mdv-linux-x86_64.tar.gz --clobber
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "mdv $TAG" --notes "Automated native Windows (WebView2 + GUI Installer) & Linux/WSL2 release binaries."
+          gh release upload "$TAG" mdv-setup-x64.exe mdv-windows-x86_64.zip mdv-linux-x86_64.tar.gz checksums.txt --clobber
