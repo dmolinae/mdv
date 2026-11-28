@@ -854,18 +854,26 @@
     showToast(`Tema: ${next}`);
   }
 
+  function computeTermFontSize(pct) {
+    return Math.max(5, Math.min(32, Math.round((15 * pct) / 100)));
+  }
+
   function applyZoom(pct, announce = true) {
-    zoomPercent = Math.min(170, Math.max(70, Math.round(pct)));
+    zoomPercent = Math.min(220, Math.max(30, Math.round(pct)));
     if (btnFontReset) btnFontReset.textContent = `${zoomPercent}%`;
     localStorage.setItem('mdv-zoom', String(zoomPercent));
 
     for (const mp of mdPanes.values()) {
       mp.article.style.fontSize = `${zoomPercent}%`;
     }
-    const termPx = Math.max(11, Math.min(24, Math.round((15 * zoomPercent) / 100)));
+    const termPx = computeTermFontSize(zoomPercent);
     for (const tp of termPanes.values()) {
       if (tp.term) {
         tp.term.options.fontSize = termPx;
+        try {
+          tp.term._core?._charSizeService?.measure?.();
+          tp.term.clearTextureAtlas?.();
+        } catch {}
         tp.fitTerminal?.();
       }
     }
@@ -1234,7 +1242,7 @@
     const rebuildFontsAndMetrics = () => {
       const dpr = browserService?.dpr || window.devicePixelRatio || 1;
       const opts = optionsService.rawOptions;
-      const fontPx = Math.max(6, Math.round((opts.fontSize || 15) * dpr));
+      const fontPx = Math.max(5, Math.round((opts.fontSize || 15) * dpr));
       const fam = opts.fontFamily || 'monospace';
       const wNorm = opts.fontWeight || 'normal';
       const wBold = opts.fontWeightBold || 'bold';
@@ -1834,7 +1842,7 @@
     const titleEl = section.querySelector('[data-pane-title]');
     const wtSlotEl = section.querySelector('[data-pane-wt-slot]');
 
-    const termPx = Math.max(11, Math.min(24, Math.round((15 * zoomPercent) / 100)));
+    const termPx = computeTermFontSize(zoomPercent);
     const term = window.Terminal
       ? new window.Terminal({
           cursorBlink: false,

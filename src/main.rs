@@ -901,7 +901,7 @@ fn build_html_shell(
   <script src="/vendor/highlight/highlight.min.js"></script>
   <script src="/vendor/katex/katex.min.js"></script>
   <script src="/vendor/mermaid/mermaid.min.js"></script>
-  <script src="/assets/app.js?v=2.13.0"></script>
+  <script src="/assets/app.js?v=2.13.2"></script>
 </body>
 </html>"#,
         theme = workspace::escape_html_attr(&state.default_theme),
